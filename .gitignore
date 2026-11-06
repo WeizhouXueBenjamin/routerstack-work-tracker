@@ -6,6 +6,7 @@
 *.pdf
 *.zip
 !templates/RouterStack_Tracker_V2_Blank.xlsx
+!templates/RouterStack_Tracker_V3_Blank.xlsx
 
 # Local user files and exports
 data/
@@ -13,6 +14,8 @@ private/
 backups/
 exports/
 downloads/
+**/local-reference/
+**/FULL_CONVERSATION_HANDOFF_PRIVATE.md
 *.log
 .env
 .env.*
@@ -21,6 +24,8 @@ downloads/
 # Local dependencies / tooling
 node_modules/
 coverage/
+test-results/
+playwright-report/
 dist/
 .DS_Store
 Thumbs.db

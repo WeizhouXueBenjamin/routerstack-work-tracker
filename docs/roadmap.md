@@ -1,18 +1,19 @@
-# Roadmap (proposed, not implemented)
+# 路线图
 
-## v0.2.x — stabilise the current Tool
+## v0.3.0 首批
 
-- [x] Extract the V2 single-file HTML into source, styles, vendor and embedded blank template
-- [x] Add CI and unit checks for the existing calculation and template agreement
-- [x] Document Work Log / Config schema and privacy boundaries
-- [ ] Add a reproducible browser test in CI for add → save → reopen → carryover
-- [ ] Improve unsaved changes warning and reliable filename/version handling
+- [x] 稳定记录定位、草稿保护、导出快照与下载待确认
+- [x] 严格导入、精确版本、关系定位、容量与 shared formulas 校验
+- [x] 18:00–06:00 AH、最低工时按占比分配、Excel 公式与缓存
+- [x] 2.0 只读与显式升级预览、3.0 Config 规则快照
+- [x] 合成浏览器回归与 CI 接入、桌面 Excel 回归脚本
 
-## Future, only after confirming requirements
+“已实现”不等于远端 CI 或所有 Excel 版本已验证，当前证据见验证记录。
 
-- [ ] Confirm RouterStack's actual minimum-hours, after-hours and lunch allocation rules
-- [ ] Introduce explicit workbook schema versions and migrations for genuine format changes
-- [ ] Consider optional simplified import/export summary for Tim
-- [ ] Consider GitHub Pages deployment only with explicit approval and a privacy review
+## 后续，另行确定需求
 
-**Non-goals:** automated assumptions about which invoice was paid from a bank total; syncing actual user invoices to GitHub; premature database/backend adoption.
+- [ ] 按当前文件日期切片的月度视图，分开本期工作与结转
+- [ ] 异常/缺失筛选与增强 Tim 对账清单
+- [ ] 轻量银行到账总额、核对说明与证据台账
+
+保持离线优先；不推断具体漏付 Invoice，不将真实工作数据推送 GitHub，不自动迁移归并历史周期，不引入不必要的数据库或后台。

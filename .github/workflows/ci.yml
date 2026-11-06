@@ -21,5 +21,11 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-      - name: Validate app and workbook template
+      - name: Install test dependencies
+        run: npm ci
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Validate source and template
         run: npm run check
+      - name: Offline browser round trips
+        run: npm run test:e2e
