@@ -1,0 +1,28 @@
+# Real invoice / financial data must never be committed.
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.pdf
+*.zip
+!templates/RouterStack_Tracker_V2_Blank.xlsx
+
+# Local user files and exports
+data/
+private/
+backups/
+exports/
+downloads/
+*.log
+.env
+.env.*
+!.env.example
+
+# Local dependencies / tooling
+node_modules/
+coverage/
+dist/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

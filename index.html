@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>RouterStack Work Tool v2</title>
+<link rel="stylesheet" href="./src/styles.css">
+</head>
+<body>
+<div class="app">
+<header class="top"><div><div class="eyebrow">ROUTERSTACK · LOCAL WORKSPACE</div><h1>Work Tool <span style="color:var(--teal)">v2</span></h1><div class="muted">快速新增工作 · 独立收入估算 · 确认后结转新周期</div></div><div class="top-actions"><button id="openBtn">打开现有 Excel</button><button id="saveBtn" class="primary">保存 Excel</button><button id="cycleBtn">创建新结算周期</button><input type="file" accept=".xlsx" id="fileInput" hidden/></div></header>
+<div id="statusBar" class="notice">当前使用内置空白 V2 模板。填写一项工作后，点击“保存 Excel”生成记录文件；之后每次继续记录前先打开该文件。</div>
+<section class="stats"><div class="stat"><div class="cap">本周期工作数</div><div class="value" id="kJobs">0</div></div><div class="stat"><div class="cap">预期金额（含额外费用及结转）</div><div class="value" id="kExpected">$0.00</div></div><div class="stat"><div class="cap">App 已显示金额</div><div class="value" id="kApp">$0.00</div></div><div class="stat"><div class="cap">可比金额差异</div><div class="value" id="kDiff">$0.00</div></div></section>
+<div class="layout"><section class="panel"><div class="row-between"><h2 id="formTitle">新增工作记录</h2><span class="pill">一项工作 = 一张 Invoice</span></div><form id="jobForm"><div class="fields">
+<div class="field"><label for="date">工作日期 *</label><input type="date" id="date" required/></div><div class="field"><label for="invoice">Invoice ID</label><input id="invoice" placeholder="INV-0408" autocomplete="off"/><span class="helper">可后补，重复会拦截</span></div>
+<div class="field"><label for="start">开始时间 *</label><input id="start" type="time" required/></div><div class="field"><label for="end">结束时间 *</label><input id="end" type="time" required/></div>
+<div class="field"><label for="lunch">Lunch (h)</label><input id="lunch" type="number" min="0" step="0.25" placeholder="留空 = 0"/></div><div class="field"><label for="rate">Rate (NZD/h) *</label><input id="rate" type="number" min="0.01" step="0.01" placeholder="55" required/></div>
+<div class="field"><label for="app">App Displayed (NZD)</label><input id="app" type="number" min="0" step="0.01" placeholder="待显示可留空"/></div><div class="field"><label for="extra">Extra Cost (NZD)</label><input id="extra" type="number" step="0.01" placeholder="默认 0"/></div>
+<div class="field wide"><label for="note">Note</label><textarea id="note" placeholder="现场、加班费问题、特殊支出或待核对事项"></textarea></div></div>
+<div class="calc"><div class="row-between"><span class="muted">预计收入（含 Extra Cost）</span><strong id="liveExpected">—</strong></div><div class="row-between"><span class="muted">Billable (AH) Hours</span><strong id="liveHours" style="font-size:15px">—</strong></div><div class="helper" id="liveHint">填写时间及费率以预览计算</div></div>
+<div id="formError" class="error"></div><div class="row-between" style="margin-top:11px"><button type="button" id="cancelEdit" class="ghost" style="display:none">取消编辑</button><button type="submit" id="submitJob" class="primary" style="flex:1">添加这项工作</button></div></form>
+<div class="settings" id="rulesBox"></div></section>
+<section class="panel"><div class="row-between"><h2>Work Log · 当前周期</h2><span class="muted" id="rowCount">0 条</span></div><div class="toolbar"><input id="search" placeholder="搜索 Invoice / 日期 / Note" style="flex:1;min-width:160px"/><button id="copyBtn">复制对账摘要</button></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Shift</th><th>Billable (AH)</th><th class="num">Expected</th><th class="num">App</th><th class="num">Difference</th><th>Note</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="9" class="blank">暂无记录。请在左侧添加第一项工作。</td></tr></tbody></table></div><div class="foot">表格只展示必要字段。Lunch、Rate、Extra Cost 等完整原始输入会写入 Excel；计算辅助列位于 Work Log 的 K–T 列。<br/>保存会生成 Excel 文件；在 Excel 与小程序中不要同时编辑同一份记录。</div></section></div>
+<div class="foot">全部运算在当前浏览器本地完成，不上传数据到服务器。唯一记录文件是你保存的 XLSX；小程序关闭后不会自动保存尚未导出的改动。<br/>注意：18:00 后 1.5 倍、最低 2 小时及休息优先扣普通工时，均按原估算逻辑沿用，需按实际合同核实。</div>
+</div>
+<div class="modal-back" id="cycleModal"><div class="modal"><div class="row-between"><div><h2 style="margin:0">创建新结算周期</h2><div class="muted">旧周期文件保持不变，只带入你明确确认的未结清金额。</div></div><button id="closeCycle" class="ghost">关闭</button></div><div class="notice" style="margin-top:14px">App 差异 ≠ 未付款。由于 RouterStack 只提供结款总额，不会自动将未付款分配给 Invoice。请按你与 Tim 核对的结果选择记录，并手动确认结转金额。</div><div class="row-between" style="margin-bottom:7px"><strong>选择未结清的 Invoice</strong><span class="muted" id="selectedCount">已选 0 项</span></div><div class="cycle-grid" id="carryRows"></div><div id="cycleError" class="error" style="margin:13px 0"></div><div class="divider"></div><div class="row-between" style="gap:12px;flex-wrap:wrap"><span class="helper">先保存当前周期，再下载新的空白周期；未选择的工作不会迁移。</span><button class="primary" id="createCycle">生成新周期 Excel</button></div></div></div>
+<script src="./vendor/jszip.min.js"></script>
+<script src="./src/template-data.js"></script>
+<script src="./src/app.js"></script>
+</body></html>
