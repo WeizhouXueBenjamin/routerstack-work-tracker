@@ -10,7 +10,7 @@
 <header class="top"><div><div class="eyebrow">ROUTERSTACK · LOCAL WORKSPACE</div><h1>Work Tool <span style="color:var(--teal)">v3</span></h1><div class="muted">快速新增工作 · 独立收入估算 · 确认后结转新周期</div></div><div class="top-actions"><button id="openBtn">打开现有 Excel</button><button id="saveBtn" class="primary">另存新版本 Excel</button><button id="cycleBtn">创建新结算周期</button><input type="file" accept=".xlsx" id="fileInput" hidden/></div></header>
 <div id="statusBar" class="notice">当前使用内置空白 3.0 模板。填写一项工作后，点击“保存 Excel”生成记录文件；之后每次继续记录前先打开该文件。</div>
 <div class="toolbar"><button id="confirmDownload" hidden>我已保留下载文件</button><button id="upgradeBtn" hidden>预览升级为 3.0</button></div>
-<section class="stats"><div class="stat"><div class="cap">本周期工作数</div><div class="value" id="kJobs">0</div></div><div class="stat"><div class="cap">预期金额（含额外费用及结转）</div><div class="value" id="kExpected">$0.00</div></div><div class="stat"><div class="cap">App 已显示金额</div><div class="value" id="kApp">$0.00</div></div><div class="stat"><div class="cap">可比金额差异</div><div class="value" id="kDiff">$0.00</div></div></section>
+<section class="stats"><div class="stat"><div class="cap">本文件工作数</div><div class="value" id="kJobs">0</div></div><div class="stat"><div class="cap">本文件工作预计（含 Extra）</div><div class="value" id="kExpected">$0.00</div></div><div class="stat"><div class="cap">本文件工作 App 已填合计</div><div class="value" id="kApp">—</div></div><div class="stat"><div class="cap">本文件工作可比差额</div><div class="value" id="kDiff">—</div></div></section>
 <div class="layout"><section class="panel"><div class="row-between"><h2 id="formTitle">新增工作记录</h2><span class="pill">一项工作 = 一张 Invoice</span></div><form id="jobForm"><div class="fields">
 <div class="field"><label for="date">工作日期 *</label><input type="date" id="date" required/></div><div class="field"><label for="invoice">Invoice ID</label><input id="invoice" placeholder="INV-0408" autocomplete="off"/><span class="helper">可后补，重复会拦截</span></div>
 <div class="field"><label for="start">开始时间 *</label><input id="start" type="time" required/></div><div class="field"><label for="end">结束时间 *</label><input id="end" type="time" required/></div>
@@ -21,7 +21,16 @@
 <div id="formError" class="error"></div><div class="row-between" style="margin-top:11px"><button type="button" id="cancelEdit" class="ghost" style="display:none">取消编辑</button><button type="submit" id="submitJob" class="primary" style="flex:1">添加这项工作</button></div></form>
 <button type="button" id="discardDraft" class="ghost">清空／放弃表单草稿</button>
 <div class="settings" id="rulesBox"></div></section>
-<section class="panel"><div class="row-between"><h2>Work Log · 当前周期</h2><span class="muted" id="rowCount">0 条</span></div><div class="toolbar"><input id="search" placeholder="搜索 Invoice / 日期 / Note" style="flex:1;min-width:160px"/><button id="copyBtn">复制对账摘要</button></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Shift</th><th>Billable (AH)</th><th class="num">Expected</th><th class="num">App</th><th class="num">Difference</th><th>Note</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="9" class="blank">暂无记录。请在左侧添加第一项工作。</td></tr></tbody></table></div><div class="foot">表格只展示必要字段。Lunch、Rate、Extra Cost 等完整原始输入会写入 Excel；计算辅助列位于 Work Log 的 K–T 列。<br/>保存会生成 Excel 文件；在 Excel 与小程序中不要同时编辑同一份记录。</div></section></div>
+<section class="panel" id="workLogPanel">
+<div class="row-between"><h2>Work Log · 当前文件</h2><span class="muted" id="rowCount">0 条</span></div>
+<div class="view-controls"><label>工作月份<select id="monthFilter"><option value="">全部月份（当前文件）</option></select></label><label>工作提醒<select id="issueFilter"><option value="all">全部工作</option><option value="needs_review">需核对／待补</option><option value="difference">差额超过阈值</option><option value="missing_invoice">Invoice 待补</option><option value="missing_app">App 待填</option></select></label></div>
+<div class="month-summary" aria-live="polite"><p id="viewScope"></p><dl class="month-values"><div><dt>新工作数</dt><dd id="mJobs">0</dd></div><div><dt>工作预计（含 Extra）</dt><dd id="mExpected">$0.00</dd></div><div><dt>App 已填金额合计</dt><dd id="mApp">—</dd></div><div><dt>可比差额（逐笔合计）</dt><dd id="mDiff">—</dd></div></dl><p class="helper" id="comparisonSummary"></p><p class="helper" id="missingSummary"></p></div>
+<div class="toolbar"><label class="sr-only" for="search">搜索工作及结转</label><input id="search" placeholder="搜索 Invoice / 日期 / Note" style="flex:1;min-width:160px"/><button id="resetFilters">清除筛选</button></div>
+<div class="toolbar"><label for="copyScope">Tim 清单</label><select id="copyScope"><option value="issues">待核对项（所选月份）</option><option value="visible">当前可见记录</option><option value="all">所选月份全部工作</option></select><button id="copyBtn">复制给 Tim 的核对清单</button></div><p class="helper" id="copyScopeHint"></p>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Shift</th><th>Billable (AH)</th><th class="num">Expected</th><th class="num">App</th><th class="num">Difference</th><th>Note</th><th>提醒</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="10" class="blank">暂无工作记录。</td></tr></tbody></table></div>
+<section id="carryoverSection" class="carryover-view" hidden><h3>确认结转 · 单独列示</h3><p id="carrySummary"></p><p class="helper">原工作日期仅供追溯；结转不按月份或工作提醒筛选，仅受文本搜索影响。</p><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>原工作日期</th><th class="num">确认余额 NZD</th><th>Note</th></tr></thead><tbody id="carryoverRows"></tbody></table></div></section>
+<div class="foot">月度统计仅来自当前文件。筛选不修改记录，保存 Excel 始终包含本文件全部工作和结转。<br/>Lunch、Rate、Extra 等完整原始输入写入 Excel；辅助列位于 K–T。请先后使用 Excel 与小程序编辑，避免同时修改。</div>
+</section></div>
 <div class="foot">全部运算在当前浏览器本地完成，不上传数据到服务器。唯一记录文件是你保存的 XLSX；小程序关闭后不会自动保存尚未导出的改动。<br/>本轮确认的默认规则：AH 每天 18:00–次日 06:00、1.5 倍；最低 2 小时按普通／AH 占比分配；Lunch 先扣普通时段。实际估算以文件 Config 为准。</div>
 </div>
 <dialog class="modal" id="cycleModal" aria-labelledby="cycleTitle"><div class="row-between"><div><h2 id="cycleTitle" style="margin:0">创建新结算周期</h2><div class="muted">旧周期文件保持不变，只带入你明确确认的未结清金额。</div></div><button id="closeCycle" class="ghost">关闭</button></div><div class="notice" style="margin-top:14px">App 差异 ≠ 未付款。由于 RouterStack 只提供结款总额，不会自动将未付款分配给 Invoice。请按你与 Tim 核对的结果选择记录，并手动确认结转金额。</div><div class="row-between" style="margin-bottom:7px"><strong>选择未结清的 Invoice</strong><span class="muted" id="selectedCount">已选 0 项</span></div><div class="cycle-grid" id="carryRows"></div><div id="cycleError" class="error" style="margin:13px 0"></div><div class="divider"></div><div class="row-between" style="gap:12px;flex-wrap:wrap"><span class="helper">先保存当前周期，再下载新的空白周期；未选择的工作不会迁移。</span><button class="primary" id="createCycle">生成新周期 Excel</button></div></dialog>
@@ -29,6 +38,7 @@
 <script src="./vendor/jszip.min.js"></script>
 <script src="./src/core.js"></script>
 <script src="./src/workbook.js"></script>
+<script src="./src/reports.js"></script>
 <script src="./src/template-data.js"></script>
 <script src="./src/app.js"></script>
 </body></html>

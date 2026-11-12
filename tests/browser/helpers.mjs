@@ -25,6 +25,36 @@ export async function legacy() {
   for(const [ref,value]of Object.entries(cells))xml=xml.replace(new RegExp('<x:c r="'+ref+'"[^>]*?(?:/>|>[\\s\\S]*?</x:c>)'),`<x:c r="${ref}" t="${typeof value==='number'?'n':'str'}"><x:v>${value}</x:v></x:c>`);
   zip.file('xl/worksheets/sheet2.xml',xml);return zip.generateAsync({type:'nodebuffer'});
 }
+export async function withPhoneticNote(page,bytes,storage='inline') {
+  return Buffer.from(await page.evaluate(async({bytes,storage})=>{
+    const zip=await JSZip.loadAsync(new Uint8Array(bytes)),NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    const doc=new DOMParser().parseFromString(await zip.file('xl/worksheets/sheet2.xml').async('string'),'application/xml');
+    const cell=[...doc.getElementsByTagNameNS(NS,'c')].find(cell=>cell.getAttribute('r')==='J6');
+    const body=(owner,tag)=>{
+      const value=owner.createElementNS(NS,tag);
+      for(const content of ['  Synthetic',' note 中文\n']){const run=owner.createElementNS(NS,'r'),text=owner.createElementNS(NS,'t');text.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');text.textContent=content;run.appendChild(text);value.appendChild(run)}
+      const hint=owner.createElementNS(NS,'rPh');hint.setAttribute('sb','2');hint.setAttribute('eb','11');
+      const text=owner.createElementNS(NS,'t');text.textContent='phonetic';hint.appendChild(text);value.appendChild(hint);
+      const props=owner.createElementNS(NS,'phoneticPr');props.setAttribute('fontId','0');value.appendChild(props);return value;
+    };
+    cell.replaceChildren();
+    if(storage==='inline'){cell.setAttribute('t','inlineStr');cell.appendChild(body(doc,'is'))}
+    else {
+      const entry=zip.file('xl/sharedStrings.xml');
+      const shared=new DOMParser().parseFromString(entry?await entry.async('string'):`<sst xmlns="${NS}"/>`,'application/xml');
+      const index=shared.getElementsByTagNameNS(NS,'si').length;
+      shared.documentElement.appendChild(body(shared,'si'));shared.documentElement.setAttribute('uniqueCount',index+1);shared.documentElement.setAttribute('count',Number(shared.documentElement.getAttribute('count') || index)+1);
+      cell.setAttribute('t','s');const v=doc.createElementNS(NS,'v');v.textContent=index;cell.appendChild(v);zip.file('xl/sharedStrings.xml',new XMLSerializer().serializeToString(shared));
+      if(!entry){
+        const rels=new DOMParser().parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('string'),'application/xml');
+        const rel=rels.createElementNS(rels.documentElement.namespaceURI,'Relationship');rel.setAttribute('Id','SyntheticSharedStrings');rel.setAttribute('Target','sharedStrings.xml');rel.setAttribute('Type','http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings');rels.documentElement.appendChild(rel);zip.file('xl/_rels/workbook.xml.rels',new XMLSerializer().serializeToString(rels));
+        const types=new DOMParser().parseFromString(await zip.file('[Content_Types].xml').async('string'),'application/xml'),override=types.createElementNS(types.documentElement.namespaceURI,'Override');override.setAttribute('PartName','/xl/sharedStrings.xml');override.setAttribute('ContentType','application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml');types.documentElement.appendChild(override);zip.file('[Content_Types].xml',new XMLSerializer().serializeToString(types));
+      }
+    }
+    zip.file('xl/worksheets/sheet2.xml',new XMLSerializer().serializeToString(doc));
+    return [...new Uint8Array(await zip.generateAsync({type:'arraybuffer'}))];
+  },{bytes:[...bytes],storage}));
+}
 export async function mutate(page,bytes,operations=[],mode='') {
   return Buffer.from(await page.evaluate(async({bytes,operations,mode})=>{
     const zip=await JSZip.loadAsync(new Uint8Array(bytes)), NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';

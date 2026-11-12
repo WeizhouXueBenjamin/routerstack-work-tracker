@@ -69,12 +69,24 @@ try {
   Assert-Value $bookTest.Worksheets.Item('Work Log').Range('G6').Value2 150 'Legacy!G6'
   $bookTest.SaveAs((Join-Path $artifactFolder 'legacy-resaved.xlsx'),51)
   $bookTest.Close($false); $bookTest=$null
+  foreach ($storageTest in @('inline','shared')) {
+    $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder ('phonetic-'+$storageTest+'.xlsx')),0,$false)
+    Assert-Value $bookTest.Worksheets.Item('Work Log').Range('J6').Value2 $expectations.phoneticNote ('Phonetic '+$storageTest)
+    $bookTest.SaveAs((Join-Path $artifactFolder ('phonetic-'+$storageTest+'-resaved.xlsx')),51)
+    $bookTest.Close($false); $bookTest=$null
+  }
   & node (Join-Path $PSScriptRoot 'excel-fixtures.mjs') verify $artifactFolder
   if ($LASTEXITCODE -ne 0) { throw 'Verifying Excel round trip failed' }
   $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder 'tool-resaved.xlsx'),0,$true)
   $excelTest.CalculateFullRebuild()
   Assert-Workbook $bookTest $expectations.edited
-  [PSCustomObject]@{ Result='PASS'; ExcelVersion=$excelVersion; Records=$expectations.original.records.Count; Artifacts=$artifactFolder } | ConvertTo-Json -Compress
+  $bookTest.Close($false); $bookTest=$null
+  foreach ($storageTest in @('inline','shared')) {
+    $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder ('phonetic-'+$storageTest+'-tool.xlsx')),0,$true)
+    Assert-Value $bookTest.Worksheets.Item('Work Log').Range('J6').Value2 $expectations.phoneticNote ('Phonetic Tool '+$storageTest)
+    $bookTest.Close($false); $bookTest=$null
+  }
+  [PSCustomObject]@{ Result='PASS'; ExcelVersion=$excelVersion; Records=$expectations.original.records.Count; PhoneticVariants=2; Artifacts=$artifactFolder } | ConvertTo-Json -Compress
 } finally {
   if ($null -ne $bookTest) { $bookTest.Close($false) }
   if ($null -ne $excelTest) { $excelTest.Quit(); [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($excelTest) }

@@ -2,7 +2,7 @@
 
 ## 数据与运行边界
 
-`index.html` 是离线操作入口，使用 classic scripts，支持 Chrome / Edge 的 `file://`。`core.js` 提供纯计算和校验，`workbook.js` 负责 XLSX 读写，`app.js` 管理表单、版本预览、显式保存和结转。运行不需要 Node.js、账号、API 或网络。
+`index.html` 是离线操作入口，使用 classic scripts，支持 Chrome / Edge 的 `file://`。`core.js` 提供纯计算和校验，`workbook.js` 负责 XLSX 读写，`reports.js` 生成只读视图和核对文本，`app.js` 管理表单、版本预览、显式保存和结转。运行不需要 Node.js、账号、API 或网络。
 
 最新保留的 XLSX 是实际工作事实的唯一保存来源。浏览器内存和未提交表单不是持久化记录；Estimated、App Displayed、银行实际到账、确认结转余额始终分开。
 
@@ -72,8 +72,21 @@ K:T 导出隐藏。Excel 编辑时间、Extra 或确认余额时需先取消相�
 
 默认另存带时间的新文件，拒绝写回已打开的文件。文件 API 写入必须成功 close 后才算该快照已保存；失败/取消保留内存。下载只能证明已发起，直到用户确认保留或打开文件前保留提醒；确认旧快照不会清除后续修改。
 
+防覆盖句柄集合在整个浏览器会话内保留，打开其他文件或重开导出文件不清空；不持久化到其他浏览器会话。结转窗口的选择/金额单独跟踪草稿，关闭/ESC 明确确认放弃，离开页面会提醒；生成期间禁用金额、选择和关闭，失败/取消后恢复并保留输入。
+
 创建新周期前须先保存并确认旧周期。只导出用户选择并输入确切余额的 Invoice，空选择需确认；新文件不自动替换当前旧周期。Carryover 保留原 Invoice/date/note，不计新工作数、不累加余额或重复追加备注，不使用 App 差额或银行总额推测欠款。
 
 ## 模板维护
 
 `scripts/generate-v3-template.mjs` 从空白 2.0 模板生成 3.0；`npm run template:sync` 将 3.0 嵌入 `src/template-data.js`。原模板不应含真实记录。变更后执行 `npm run check`、`npm run test:e2e`，计费/模板变更还需桌面 Excel 回归。
+
+inline/shared strings 读取正文时，只取直接 `t` 或富文本 `r/t`，排除 `rPh` 注音及样式元数据；原始备注中的空白和换行保留。原始字符串写为带 `xml:space="preserve"` 的 inline string，公式字符串缓存仍采用原有格式，避免桌面 Excel 截掉正文空白。标准模板导出不复制注音/富文本样式，不能将提示文本并入原始事实。
+
+## v0.4 只读统计与清单
+
+- `TrackerReports` 的 `months/issues/totals/view/timReport` 仅消费当前文件的已校验记录、Config 和计算版本，不修改记录或写入 XLSX。2.0 只读模式沿用旧计算口径。
+- 月份列表只由 Job 日期产生，跨午夜/跨月工作也按其原工作日期整项归属，不拆分同一 Invoice。月度合计包含该月份全部 Job，不受搜索/提醒筛选影响；只对已填 App 的工作汇总可比 Expected/App，Difference 为逐笔舍入后合计。文件总览使用全部 Job 的同一统计口径。Carryover 不参加新工作数量、工时或预计金额。
+- 提醒包括缺 Invoice、缺 App、差额绝对值超过 Config 容差。明确 App=0 正常参与比较；空白保持待填，不变成零。
+- 结转区单列全文件确认余额；月份和工作提醒不影响它，文本搜索只影响可见结转行。保存仍使用全量 `state.records`，不导出筛选后的子集。
+- Tim 默认范围为所选月份差额/待补 Job 加全文件 Carryover；另外支持可见记录、所选月份全部工作。复制的金额、总数和范围明确，不反推银行分配或付款状态；未保存内容有提示，未提交的工作表单须先提交或取消。
+- 清单中的备注换行/分隔符仅作单行显示整理，不修改 XLSX 原始文本。月度视图与复制范围是浏览器查看状态，不写入 Config，也不产生 schema 迁移。

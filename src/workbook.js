@@ -5,6 +5,8 @@
   const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const children = (node,tag) => node ? [...node.children].filter(n=>n.localName===tag) : [];
   const first = (node,tag) => children(node,tag)[0] || null;
+  // rPh contains pronunciation hints, not the cell's original text.
+  const stringText = node => node ? [...node.children].map(child=>child.localName==='t'?child.textContent:child.localName==='r'?children(child,'t').map(text=>text.textContent).join(''):'').join('') : '';
   function parse(xml, context) {
     const doc = new DOMParser().parseFromString(xml,'application/xml');
     if (doc.querySelector('parsererror')) throw Error(context+': XML 无法解析');
@@ -33,7 +35,7 @@
     if (!cell) return '';
     const type = cell.getAttribute('t');
     if (type==='e') throw Error(sheet.name+'!'+ref+': Excel 错误值');
-    if (type==='inlineStr') return [...cell.getElementsByTagNameNS(NS,'t')].map(n=>n.textContent).join('');
+    if (type==='inlineStr') return stringText(first(cell,'is'));
     const raw = first(cell,'v')?.textContent ?? '';
     if (type==='s') {
       const n = Number(raw);
@@ -79,6 +81,12 @@
     cell.removeAttribute('t');
     if (data===null || data===undefined || data==='') {if(cache)cell.setAttribute('t','str');return}
     if (typeof data==='number' && !Number.isFinite(data)) throw Error(sheet.name+'!'+ref+': 拒绝写入非有限数值');
+    if(!cache && typeof data!=='number') {
+      cell.setAttribute('t','inlineStr');
+      const inline=sheet.doc.createElementNS(NS,'is'),text=sheet.doc.createElementNS(NS,'t');
+      text.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');text.textContent=String(data);
+      inline.appendChild(text);cell.appendChild(inline);return;
+    }
     cell.setAttribute('t',typeof data==='number'?'n':'str');
     const v=sheet.doc.createElementNS(NS,'v');v.textContent=String(data);cell.appendChild(v);
   }
@@ -166,7 +174,7 @@
     const zip=await JSZip.loadAsync(input), {book,paths}=await locate(zip);
     const [logDoc,cfgDoc,toolDoc]=await Promise.all(['Work Log','Config','Tool'].map(name=>xml(zip,paths[name])));
     const shared=zip.file('xl/sharedStrings.xml') ? await xml(zip,'xl/sharedStrings.xml') : null;
-    const strings=shared?[...shared.getElementsByTagNameNS(NS,'si')].map(si=>[...si.getElementsByTagNameNS(NS,'t')].map(t=>t.textContent).join('')):[];
+    const strings=shared?[...shared.getElementsByTagNameNS(NS,'si')].map(stringText):[];
     const log=indexSheet(logDoc,'Work Log'), cfg=indexSheet(cfgDoc,'Config'), tool=indexSheet(toolDoc,'Tool');
     C.HEADERS.forEach((expected,i)=>{const ref=String.fromCharCode(65+i)+'5';if(text(log,ref,strings)!==expected)throw Error('Work Log!'+ref+': 列头应为 '+expected)});
     const settings=readConfig(cfg,strings), reader=formulaReader(log), records=[], ids=new Set();

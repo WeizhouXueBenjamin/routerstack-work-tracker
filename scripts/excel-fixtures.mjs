@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
 import {chromium} from '@playwright/test';
-import {url,legacy} from '../tests/browser/helpers.mjs';
+import {url,legacy,withPhoneticNote} from '../tests/browser/helpers.mjs';
 const require=createRequire(import.meta.url), Core=require('../src/core.js');
 const [stage,folder]=process.argv.slice(2);
 if(!folder || !['prepare','verify'].includes(stage))throw Error('Usage: excel-fixtures.mjs prepare|verify <temporary-directory>');
@@ -35,7 +35,9 @@ try {
   if(stage==='prepare') {
     await exportFile('source.xlsx',records,config);
     await writeFile(file('legacy.xlsx'),await legacy());
-    await writeFile(file('expected.json'),JSON.stringify({original:expected(records,config),edited:expected(edited,editedConfig)},null,2));
+    const bytes=await readFile(file('source.xlsx'));
+    for(const storage of ['inline','shared'])await writeFile(file('phonetic-'+storage+'.xlsx'),await withPhoneticNote(page,bytes,storage));
+    await writeFile(file('expected.json'),JSON.stringify({original:expected(records,config),edited:expected(edited,editedConfig),phoneticNote:'  Synthetic note 中文\n'},null,2));
     console.log('Prepared synthetic Excel cases: '+records.length);
   } else {
     for(const [name,data,rules,changed]of [['excel-resaved.xlsx',records,config,false],['excel-edited-reordered.xlsx',edited,editedConfig,true]]) {
@@ -54,6 +56,14 @@ try {
     const legacyBytes=await readFile(file('legacy-resaved.xlsx'));
     const old=await page.evaluate(async bytes=>{const out=await TrackerWorkbook.read(new Uint8Array(bytes));return {version:out.version,records:out.records}},[...legacyBytes]);
     assert.equal(old.version,'2.0');assert.equal(old.records.length,1);
+    for(const storage of ['inline','shared']) {
+      for(const suffix of ['','-resaved']) {
+        const bytes=await readFile(file('phonetic-'+storage+suffix+'.xlsx'));
+        const parsed=await page.evaluate(async bytes=>{const out=await TrackerWorkbook.read(new Uint8Array(bytes));return {records:out.records,config:out.config}},[...bytes]);
+        assert.equal(parsed.records[0].note,'  Synthetic note 中文\n');
+        if(suffix)await exportFile('phonetic-'+storage+'-tool.xlsx',parsed.records,parsed.config);
+      }
+    }
     console.log('Verified Excel edits, sheet reordering, both shared-formula versions and Tool re-export.');
   }
 } finally {await browser.close()}
