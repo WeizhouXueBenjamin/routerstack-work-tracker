@@ -91,3 +91,6 @@ try {
   if ($null -ne $bookTest) { $bookTest.Close($false) }
   if ($null -ne $excelTest) { $excelTest.Quit(); [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($excelTest) }
 }
+
+# Keep legacy and schema 4 compatibility in the same explicit desktop gate.
+& (Join-Path $PSScriptRoot 'test-excel-v4.ps1')

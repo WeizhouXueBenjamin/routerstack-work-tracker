@@ -1,112 +1,41 @@
 # RouterStack Work Tracker
 
-> Offline-first personal work-hour and invoice reconciliation tool for data centre field work. 
-> 本项目为个人记录及对账工具，并非 RouterStack 官方软件。
+个人使用、离线优先的记工与收入核对工具：减少重复输入、独立估算并发现 RouterStack App 差异、换期不丢未解决事项。并非 RouterStack 官方软件。
 
-## 当前版本
+工程资料从 [docs/README.md](docs/README.md) 进入，已分为**当前文档、报告、历史资料**。
 
-- **v0.4.0** — 修复原文件保护、结转草稿和注音文本往返；增加月度视图、工作提醒筛选和 Tim 核对清单。工作簿 schema 仍为 **3.0**，计费公式与模板保持不变。
-- 中文操作界面，英文数据字段。无需服务端、数据库、云账号或 Excel 宏。
-- 一笔工作对应一张 Invoice；同一天多笔工作分开记录。
-- `Lunch (h)` 输入数字小时，空白按 0；`Billable (AH)` 使用类似 `8.75 (1.75)` 的展示方式。
-- 自动 Estimated / App Displayed 差异提示；结算后仅结转经确认的 Invoice 余额。
-- 默认 AH 每日 **18:00–次日 06:00**、1.5 倍、最低 2h；扣 Lunch 后按普通／AH 占比分配最低工时。这些默认规则已由用户确认，实际配置仍以文件为准。
+## 使用
 
-## 开始使用（离线）
+直接用 Chrome/Edge 打开 index.html，日常无需 Node.js、账号、服务器、宏或互联网。
 
-直接双击 `index.html`，用 Chrome 或 Edge 打开。新增工作后先点击“添加这项工作”，再“另存新版本 Excel”。**任何未显式保存的数据都不保证持久化**。
+1. “打开现有 Excel”，选择最新实际保留的周期文件；当前不会跨会话记住最近文件。
+2. 输入实际日期、Start/End、Rate；Lunch 为数字小时，空白按 0。Invoice、App、Extra、Notes 可后补。同日多项工作分别记录。
+3. “添加这项工作”只提交到内存。当前成功添加后日期重置为今天、Rate 清空，连续补录请核对。
+4. “另存新版本 Excel”：直接写文件需 write/close 成功；下载模式需确认已保留文件。确认旧快照不会清除后来的修改。
+5. 下次继续打开最新保存文件；Tool 与 Excel 先后编辑，避免并行修改。
 
-> 有文件选择器时，选择新的版本文件名，写入完成后才显示已另存；下载模式只显示“已发起下载，待确认保留”。检查文件已保留后点击确认，或重新打开下载文件。确认较早的导出不会清除后来修改。下次务必打开最新保留的文件；Tool 和 Excel 可以先后编辑，避免同时修改同一份数据。
+旧 2.0/3.0 当前只读，升级须预览、确认并另存 4.0。Excel 可编辑 Work Log 原始字段和 Config；时间/Extra 列需先取消隐藏，不改公式、表头、ID 或受控表。详见[数据契约](docs/architecture.md)。
 
-旧 `2.0` 工作簿只读打开；点击“预览升级为 3.0”，核对逐笔金额变化后再确认并另存，原文件保持归档。Excel 修改 Config 后重开也会要求确认整周期规则差异。当前只支持精确的 `2.0` 与 `3.0`，不自动迁移其他历史格式。
+## 核对与换期
 
-Excel 可修改原始字段和 Config；时间、Extra、Carryover 在隐藏的 K:O 中，需先取消隐藏。不要改计算公式、表头或列顺序。详细接口及限制见 [数据契约](docs/architecture.md)，开发入口见 [CODEX_START_HERE](docs/CODEX_START_HERE.md)。
+- Estimated、App、银行实收、人工确认结转分别保留。App 空白不是 0，差额不是确认欠款，银行总额不证明具体 Invoice 已付。
+- 银行到账可只记日期、金额和可选备注。月度只统计当前文件新工作，结转单列；筛选不影响完整导出。Tim 清单只复制本机，不自动发送。
+- 先保存并确认保留旧周期，再手动创建新周期。新 Work Log 空白，旧文件归档；生成后仍打开旧周期，需打开新文件继续。
+- 现有换期还会携带未获批次核对覆盖的完整工作，App 匹配也可能带入。这一复杂行为尚未简化，目标与当前差距见[路线图](docs/roadmap.md)。
 
-本轮浏览器与桌面 Excel 验证结果见 [验证记录](docs/VALIDATION_REPORT.md)。
-
-## 月度查看与 Tim 清单
-
-- 月份仅来自当前文件的工作日期；月度工作数、预计金额和工时不包含结转。文件总览统计全部新工作，确认结转余额在结转区单列。
-- 月度合计不随文本搜索或提醒筛选变化；可筛选差额超阈值、Invoice 待补、App 待填或全部需核对项。空白 App 不视为 0；无可比项目时显示 `—`。
-- 确认结转单独列示，不按月份或工作提醒筛选，仅受文本搜索影响；不能当作本月新收入。
-- Tim 清单默认复制所选月份的差额及待补项，附本文件全部确认结转，二者分开。也可选择“当前可见记录”或“所选月份全部工作”，复制前会明确说明范围。
-- 清单保留估算依据，标明待填 App、未另存修改及金额差异的含义；复制只写本机剪贴板，不自动发送给 Tim。不可用时提供本地手工复制文本。
-- 筛选不删数据；另存 Excel 始终包含当前文件全部工作和结转。不会读取其他周期文件，也不会据银行总额推断已付/欠款。
-
-同一浏览器会话中，曾打开或成功导出的文件都会继续受防覆盖保护，重开导出文件不会清空保护列表。结转选择或金额未生成文件时也有离开提醒；生成期间锁定结转输入和关闭，取消/失败则保留草稿。
+当前本地实现 v0.5.0 / schema 4.0，计算版本 3.0，含未提交改动；不代表已发布。后续聚焦快速录入，现有批次/付款分配只保留兼容。范围和规则确认边界见 [Project Goal](docs/PROJECT_GOAL.md)。
 
 ## 本地开发
 
-需要 Node.js >=22，但**正常使用不需要 Node.js**：
+开发需 Node.js >=22；开发入口 http://127.0.0.1:4173：
 
-```powershell
+~~~powershell
 npm run dev
-```
+npm run check
+npm run test:e2e
+npm run test:excel
+~~~
 
-浏览器打开 `http://127.0.0.1:4173`。也可双击 `index.html` 进行离线回归检查。
+首次运行浏览器测试可先 npm ci、npx playwright install chromium；安装工具需要联网，应用运行不联网。TEST_BROWSER=chrome 或 msedge 可选已安装浏览器。模板仅在授权改动后执行 npm run template:sync。验证结果及环境限制见[报告](docs/reports/2026-11-15-scope-audit.md)。
 
-```powershell
-npm run check             # JS syntax + embedded template match + unit tests
-npm run template:sync     # 修改 Excel 空白模板后再执行
-npm ci                    # 以下浏览器回归所需的开发依赖
-npx playwright install chromium
-npm run test:e2e          # 离线浏览器流程、错误导入、保存及升级回归
-npm run test:excel        # Windows + 已安装桌面 Excel
-```
-
-没有 npm runtime 依赖；日常使用和基础检查无需安装依赖。Playwright 仅供开发测试，安装时需要联网，应用运行不联网。可设置 `TEST_BROWSER=chrome` 或 `msedge` 验证已安装的浏览器。Excel 测试只在系统临时目录生成合成数据，不访问个人工作簿。
-
-## 仓库结构
-
-```text
-routerstack-work-tracker/
-├─ index.html                    # Tool UI
-├─ src/
-│  ├─ app.js                    # 表单、保存状态、升级预览、结转
-│  ├─ core.js                   # 版本化计算、字段验证、公式定义
-│  ├─ workbook.js               # XLSX 解析、公式校验、导出
-│  ├─ reports.js                # 只读月度统计、提醒与 Tim 文本
-│  ├─ styles.css                # 界面样式
-│  └─ template-data.js          # 由空白模板生成的 Base64（勿手改）
-├─ templates/
-│  ├─ RouterStack_Tracker_V2_Blank.xlsx # 原版保留
-│  └─ RouterStack_Tracker_V3_Blank.xlsx # 当前默认
-├─ vendor/
-│  ├─ jszip.min.js              # JSZip v3.10.1，离线 Excel ZIP 操作
-│  └─ JSZip_LICENSE.markdown
-├─ scripts/                     # 本地开发服务器、模板嵌入
-├─ tests/                       # 基础单元测试 + Playwright 浏览器回归
-├─ docs/architecture.md         # Excel schema / 数据契约
-├─ AGENTS.md                     # Codex/AI 开发准则
-└─ .github/workflows/ci.yml     # push / PR 自动检查
-```
-
-## GitHub 初始化（推荐 Private）
-
-1. 在 GitHub 新建空仓库：`routerstack-work-tracker`，选择 **Private**，不要重复勾选自动创建 README / `.gitignore` / License。
-2. 解压本仓库压缩包，在其根目录执行：
-
-```powershell
-git init -b main
-git add .
-git status
-git commit -m "chore: establish V2 project baseline"
-git remote add origin https://github.com/<YOUR_USERNAME>/routerstack-work-tracker.git
-git push -u origin main
-```
-
-记得用自己的 GitHub 用户名替换 `<YOUR_USERNAME>`，不要原样执行。GitHub CLI 可改用 `gh repo create ... --source=. --private --push`，不要重复执行两种创建方式。
-
-## 数据与安全
-
-- **仓库只包含空白 Excel 模板**。`.gitignore` 屏蔽普通 `.xlsx`、CSV、PDF、备份及个人工作数据目录。
-- GitHub Private 也不适合存储银行凭证或真实工资记录；请将个人记录存储在仓库之外并自行备份。
-- JSZip 第三方授权见 `vendor/JSZip_LICENSE.markdown`；项目源代码暂未指定开源许可证。
-- 默认计费规则由用户于 2026-11-07 确认，估算不代表实际付款或税后收入。银行到账与逐笔 Invoice 不会自动匹配。
-
-## 后续开发优先级
-
-1. 轻量银行到账总额、核对说明与证据台账，具体范围另行确定。
-2. 持续维护 XLSX 兼容回归；不自动迁移归并历史周期。
-
-当前**不**启用 GitHub Pages 或任何自动发布流程；代码在本地运行，工作数据留在本地。
+真实工作簿、工资和银行凭证放在仓库外并自行备份；测试只用合成数据。JSZip 授权见 vendor/JSZip_LICENSE.markdown；源代码未指定开源许可证。当前不自动发布或启用 GitHub Pages。

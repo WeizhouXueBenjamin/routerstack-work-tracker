@@ -97,7 +97,7 @@
     if(text.length>16*1024*1024)throw Error(path+': XML 超出本工具支持范围');
     return parse(text,path);
   }
-  async function locate(zip) {
+  async function locate(zip,names=['Tool','Work Log','Config']) {
     const [book,rels] = await Promise.all([xml(zip,'xl/workbook.xml'),xml(zip,'xl/_rels/workbook.xml.rels')]);
     const props=book.getElementsByTagNameNS(NS,'workbookPr')[0];
     if(['1','true'].includes(props?.getAttribute('date1904')))throw Error('workbookPr: 暂不支持 1904 日期系统；原文件未修改');
@@ -109,10 +109,10 @@
     }
     const paths={};
     const sheets=[...book.getElementsByTagNameNS(NS,'sheet')];
-    if(sheets.length!==3)throw Error('工作簿必须包含 Tool、Work Log、Config 三张 Sheet');
+    if(sheets.length!==names.length)throw Error('工作簿必须包含 '+names.join('、')+'，Sheet 数量不符');
     for(const sheet of sheets) {
       const name=sheet.getAttribute('name'), r=relationships.get(sheet.getAttributeNS(REL,'id'));
-      if(!['Tool','Work Log','Config'].includes(name) || paths[name] || !r || r.getAttribute('TargetMode')==='External' || !r.getAttribute('Type')?.endsWith('/worksheet'))throw Error('工作簿 Sheet 名称或 relationship 无效：'+name);
+      if(!names.includes(name) || paths[name] || !r || r.getAttribute('TargetMode')==='External' || !r.getAttribute('Type')?.endsWith('/worksheet'))throw Error('工作簿 Sheet 名称或 relationship 无效：'+name);
       const raw=r.getAttribute('Target') || '', parts=(raw.startsWith('/')?raw.slice(1):'xl/'+raw).split('/'), normalized=[];
       for(const part of parts){if(part==='..'){if(!normalized.length)throw Error('Sheet 路径越界');normalized.pop()}else if(part && part!=='.')normalized.push(part)}
       const path=normalized.join('/');
@@ -152,16 +152,17 @@
   function checkFormula(reader,sheet,ref,expected) {
     if(normalizeFormula(reader(ref))!==normalizeFormula(expected))throw Error(sheet.name+'!'+ref+': 计算公式与此版本不符；自定义公式不支持写入');
   }
-  function readConfig(sheet,strings) {
+  function readConfig(sheet,strings,versions=['2.0',C.VERSION]) {
     const version=text(sheet,'B10',strings);
-    if(!['2.0',C.VERSION].includes(version))throw Error('Config!B10: 不支持的版本 '+version+'，仅支持 2.0 / 3.0');
+    if(!versions.includes(version))throw Error('Config!B10: 不支持的版本 '+version+'，仅支持 '+versions.join(' / '));
+    const calculationVersion=version==='2.0'?'2.0':C.VERSION;
     const config={minHours:Number(numeric(sheet,'B5',strings)),ahStart:Number(numeric(sheet,'B6',strings))*24,mult:Number(numeric(sheet,'B7',strings)),tolerance:Number(numeric(sheet,'B8',strings)),allocation:text(sheet,'B9',strings)};
     // Excel serial fractions can introduce insignificant binary noise.
     config.ahStart=Math.round(config.ahStart*60000000)/60000000;
-    if(version===C.VERSION)config.ahEnd=Math.round(Number(numeric(sheet,'B16',strings))*24*60000000)/60000000;
-    try{C.validateConfig(config,version)}catch(error){throw Error('Config!B5:B9 / B16: '+error.message)}
+    if(calculationVersion===C.VERSION)config.ahEnd=Math.round(Number(numeric(sheet,'B16',strings))*24*60000000)/60000000;
+    try{C.validateConfig(config,calculationVersion)}catch(error){throw Error('Config!B5:B9 / B16: '+error.message)}
     let baseline=null;
-    if(version===C.VERSION) {
+    if(calculationVersion===C.VERSION) {
       try {
         baseline=JSON.parse(text(sheet,'B17',strings));
         if(!baseline || typeof baseline!=='object' || Object.keys(baseline).sort().join(',')!==Object.keys(C.DEFAULT_CONFIG).sort().join(','))throw Error('快照字段不完整');
@@ -170,21 +171,17 @@
     }
     return {version,config,baseline,configChanged:baseline!==null && C.configSnapshot(config)!==C.configSnapshot(baseline)};
   }
-  async function read(input) {
-    const zip=await JSZip.loadAsync(input), {book,paths}=await locate(zip);
-    const [logDoc,cfgDoc,toolDoc]=await Promise.all(['Work Log','Config','Tool'].map(name=>xml(zip,paths[name])));
-    const shared=zip.file('xl/sharedStrings.xml') ? await xml(zip,'xl/sharedStrings.xml') : null;
-    const strings=shared?[...shared.getElementsByTagNameNS(NS,'si')].map(stringText):[];
-    const log=indexSheet(logDoc,'Work Log'), cfg=indexSheet(cfgDoc,'Config'), tool=indexSheet(toolDoc,'Tool');
+  function readLog(log,settings,strings=[],{extras={},withRowNumbers=false}={}) {
     C.HEADERS.forEach((expected,i)=>{const ref=String.fromCharCode(65+i)+'5';if(text(log,ref,strings)!==expected)throw Error('Work Log!'+ref+': 列头应为 '+expected)});
-    const settings=readConfig(cfg,strings), reader=formulaReader(log), records=[], ids=new Set();
+    for(const [col,header] of Object.entries(extras))if(text(log,col+'5',strings)!==header)throw Error('Work Log!'+col+'5: 列头应为 '+header);
+    const reader=formulaReader(log), records=[], ids=new Set(),rawColumns=[...C.RAW_COLUMNS,...Object.keys(extras)];
     for(const [ref,cell] of log.cells) {
       const [,col,rowText]=/^([A-Z]+)(\d+)$/.exec(ref), row=Number(rowText);
-      if(row>=5 && (col.length>1 || col>'T')) {if(value(log,ref,strings)!=='' || first(cell,'f'))throw Error('Work Log!'+ref+': 存在未支持的附加列')}
-      if(row>305 && C.RAW_COLUMNS.includes(col) && (value(log,ref,strings)!=='' || first(cell,'f')))throw Error('Work Log!'+ref+': 记录超出 300 条容量，拒绝截断');
+      if(row>=5 && (col.length>1 || col>'T') && !Object.hasOwn(extras,col)) {if(value(log,ref,strings)!=='' || first(cell,'f'))throw Error('Work Log!'+ref+': 存在未支持的附加列')}
+      if(row>305 && rawColumns.includes(col) && (value(log,ref,strings)!=='' || first(cell,'f')))throw Error('Work Log!'+ref+': 记录超出 300 条容量，拒绝截断');
     }
     for(let row=6;row<=305;row++) {
-      const occupied=C.RAW_COLUMNS.some(col=>value(log,col+row,strings)!=='' || first(log.cells.get(col+row),'f'));
+      const occupied=rawColumns.some(col=>value(log,col+row,strings)!=='' || first(log.cells.get(col+row),'f'));
       const hasFormula=C.FORMULA_COLUMNS.some(col=>first(log.cells.get(col+row),'f'));
       if(occupied || hasFormula)for(const col of C.FORMULA_COLUMNS)checkFormula(reader,log,col+row,C.formulas(row,settings.version)[col]);
       if(!occupied)continue;
@@ -195,19 +192,34 @@
       const time=col=>{const raw=number(col);if(raw==='')return '';const n=Number(raw)*1440;if(n<0 || n>=1440 || Math.abs(n-Math.round(n))>1e-6)throw Error('Work Log!'+col+row+': 时间应为 00:00–23:59 的整分钟');return C.timeText(Math.round(n)/60)};
       start=time('K');end=time('L');
       const record={kind:str('M'),date,invoice:str('B'),start,end,lunch:number('D'),rate:number('E'),app:number('H'),extra:number('N'),note:str('J'),balance:number('O')};
+      if(Object.hasOwn(extras,'U')){record.id=str('U');record.site=str('V')}
+      if(withRowNumbers)record.sourceRow=row;
       const error=C.validateRecord(record,settings.config,settings.version);
       if(error)throw Error('Work Log 第 '+row+' 行 · '+error);
       if(record.invoice && ids.has(record.invoice))throw Error('Work Log!B'+row+': 重复 Invoice ID '+record.invoice);
       if(record.invoice)ids.add(record.invoice);
       records.push(record);
     }
+    return records;
+  }
+  function checkTool(tool,{carryover=true}={}) {
     const toolReader=formulaReader(tool);
-    for(const [ref,formula] of Object.entries({B6:'COUNTIF(\'Work Log\'!$M$6:$M$305,"Job")',B7:"SUM('Work Log'!$G$6:$G$305)",B8:"SUM('Work Log'!$H$6:$H$305)",B9:"SUM('Work Log'!$I$6:$I$305)",B10:'SUMIF(\'Work Log\'!$M$6:$M$305,"Carryover",\'Work Log\'!$G$6:$G$305)'}))checkFormula(toolReader,tool,ref,formula);
+    const formulas={B6:'COUNTIF(\'Work Log\'!$M$6:$M$305,"Job")',B7:"SUM('Work Log'!$G$6:$G$305)",B8:"SUM('Work Log'!$H$6:$H$305)",B9:"SUM('Work Log'!$I$6:$I$305)"};
+    if(carryover)formulas.B10='SUMIF(\'Work Log\'!$M$6:$M$305,"Carryover",\'Work Log\'!$G$6:$G$305)';
+    for(const [ref,formula] of Object.entries(formulas))checkFormula(toolReader,tool,ref,formula);
+  }
+  async function read(input) {
+    const zip=await JSZip.loadAsync(input), {book,paths}=await locate(zip);
+    const [logDoc,cfgDoc,toolDoc]=await Promise.all(['Work Log','Config','Tool'].map(name=>xml(zip,paths[name])));
+    const shared=zip.file('xl/sharedStrings.xml') ? await xml(zip,'xl/sharedStrings.xml') : null;
+    const strings=shared?[...shared.getElementsByTagNameNS(NS,'si')].map(stringText):[];
+    const log=indexSheet(logDoc,'Work Log'), cfg=indexSheet(cfgDoc,'Config'), tool=indexSheet(toolDoc,'Tool');
+    const settings=readConfig(cfg,strings),records=readLog(log,settings,strings);
+    checkTool(tool);
     return {...settings,records,paths,book};
   }
-  async function write(records,config) {
+  async function populate(zip,book,paths,records,config) {
     C.validateRecords(records,config);
-    const zip=await JSZip.loadAsync(TEMPLATE_BASE64,{base64:true}), {book,paths}=await locate(zip);
     const [logDoc,cfgDoc,toolDoc]=await Promise.all(['Work Log','Config','Tool'].map(name=>xml(zip,paths[name])));
     const log=indexSheet(logDoc,'Work Log'), cfg=indexSheet(cfgDoc,'Config'), tool=indexSheet(toolDoc,'Tool');
     for(let row=6;row<=305;row++) {
@@ -231,7 +243,14 @@
     if(!calc){calc=book.createElementNS(NS,'calcPr');book.documentElement.appendChild(calc)}
     calc.setAttribute('fullCalcOnLoad','1');calc.setAttribute('forceFullCalc','1');calc.setAttribute('calcMode','auto');
     zip.file('xl/workbook.xml',serialize(book));
+    return zip;
+  }
+  async function write(records,config) {
+    const zip=await JSZip.loadAsync(TEMPLATE_BASE64,{base64:true}), {book,paths}=await locate(zip);
+    await populate(zip,book,paths,records,config);
     return zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:5}});
   }
+  root.TrackerWorkbookXml=Object.freeze({NS,REL,children,first,stringText,parse,serialize,indexSheet,value,rawValue,numeric,text,getCell,set,xml,locate,readConfig,readLog,checkTool,populate});
   root.TrackerWorkbook=Object.freeze({read,write});
+  root.TrackerLegacyWorkbook=root.TrackerWorkbook;
 })(globalThis);

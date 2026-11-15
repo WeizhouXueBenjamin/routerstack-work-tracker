@@ -1,16 +1,16 @@
-# Development instructions for coding assistants
+# 编码助手开发约束
 
-Project: RouterStack Work Tracker. Language: write user-facing guidance/docs in Chinese, preserve English technical identifiers in code.
+项目：RouterStack Work Tracker。说明/文档用中文，代码保留 English technical identifiers。
+优先级：**数据完整性 > 可预测的 Excel 兼容性 > 录入便利 > 样式**。
 
-Priorities: **data integrity > predictable Excel compatibility > ease of entry > styling**.
-
-- Treat uploaded/saved user XLSX as the only authority for actual jobs, dates, invoice IDs, pay, and payment status. Never invent data.
-- One job = one invoice ID. A day can have multiple jobs and invoices.
-- Estimated / App Displayed / actual bank transfers / confirmed carryover are four different concepts. Never merge them into one number.
-- Lunch is a numeric number of hours (blank 0); AH starts at an editable config value. Calculation assumptions remain unverified until user confirms.
-- The XLSX data contract is in `docs/architecture.md`. Never reorder sheets or columns without migration + tests.
-- Keep the app offline-first; use no API, tracking, remote storage, auto-upload, or mandatory internet dependencies unless approved.
-- No real user financial data in the repository. Keep tests synthetic.
-- Always run `npm run check` and a browser add → save → reopen → carryover test after changes to parsing/export logic.
-- Never assume silent auto-save to XLSX; be clear that work is unsaved until explicit save/download.
-- Prefer focused changes over a wholesale rewrite or new framework.
+- 先读 [文档入口](docs/README.md)、[Project Goal](docs/PROJECT_GOAL.md)，涉及读写再读 [数据契约](docs/architecture.md)。产品范围以 Goal 为准，实际格式以契约为准；报告和归档不构成开发授权。
+- 修改前核对 git status、HEAD、实际代码/测试；保留无关未提交内容。当前文档整理不授权实现、删除功能或迁移数据。
+- 新功能提案须回答：**服务哪个核心目标；现有功能为何不足；增加多少输入或维护负担**。未经批准不激活暂缓项，不因旧计划继续扩建财务流程。
+- 用户保存/上传的 XLSX 是唯一持久事实来源，不编造工作、日期、Invoice、费率或付款。一个 Job 一张 Invoice，同日可多项，Invoice 可后补。
+- Estimated / App Displayed / 银行实收 / 人工确认结转分开；App 空白不是 0，差额不是确认债务，银行总额不能推断单项已付。
+- Lunch 为数字小时，新工作空白按 0；AH 等取可编辑 Config。既有估算模型不等于官方政策，未知规则/真实默认费率不猜测。
+- 保留 Tool / Work Log / Config 职责，不限定三张 Sheet；现有复杂表、关系、原始字段和历史数据须兼容保留。调整 Sheet/列结构或顺序须有迁移方案与兼容测试，不静默降级或截断。
+- 离线优先；未经批准不引入 API、追踪、远程存储、自动上传或运行时联网依赖。最近文件便利引用不能形成第二份工作账本；优先复用现有 HTML/JS/JSZip，不重写框架。
+- 不提交真实财务数据，测试只用合成数据。显式保存前仍未持久化；发起下载不等于保留成功，失败/取消不得清草稿，旧快照确认不清新修改。
+- 解析/导出变更必须运行 npm run check 和浏览器新增 → 保存 → 重开 → 结转；模板/公式/schema 变更另验证桌面 Excel 往返。未运行标“未验证”，历史结果不作本轮通过依据。
+- 完成状态须依据实际代码与适当测试；不自动提交、推送或部署。

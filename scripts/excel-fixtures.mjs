@@ -29,7 +29,7 @@ try {
   page.on('dialog',dialog=>dialog.accept());await page.addInitScript(()=>{window.showSaveFilePicker=undefined;window.showOpenFilePicker=undefined});
   await page.goto(url);
   async function exportFile(name,data,rules) {
-    const bytes=await page.evaluate(async({data,rules})=>[...new Uint8Array(await (await TrackerWorkbook.write(data,rules)).arrayBuffer())],{data,rules});
+    const bytes=await page.evaluate(async({data,rules})=>[...new Uint8Array(await (await TrackerLegacyWorkbook.write(data,rules)).arrayBuffer())],{data,rules});
     await writeFile(file(name),Buffer.from(bytes));
   }
   if(stage==='prepare') {
@@ -42,24 +42,22 @@ try {
   } else {
     for(const [name,data,rules,changed]of [['excel-resaved.xlsx',records,config,false],['excel-edited-reordered.xlsx',edited,editedConfig,true]]) {
       const bytes=await readFile(file(name));
-      const out=await page.evaluate(async bytes=>{const result=await TrackerWorkbook.read(new Uint8Array(bytes));return {version:result.version,records:result.records,config:result.config,configChanged:result.configChanged}},[...bytes]);
+      const out=await page.evaluate(async bytes=>{const result=await TrackerLegacyWorkbook.read(new Uint8Array(bytes));return {version:result.version,records:result.records,config:result.config,configChanged:result.configChanged}},[...bytes]);
       assert.equal(out.version,'3.0');assert.deepEqual(normal(out.records),normal(data));assert.deepEqual(out.config,rules);assert.equal(out.configChanged,changed);
       if(changed) {
-        await page.locator('#fileInput').setInputFiles(file(name));await page.waitForFunction(()=>!state.busy);
-        assert.equal(await page.locator('#reviewModal').isVisible(),true);
-        await page.locator('#reviewConfirm').click();
-        const download=page.waitForEvent('download');await page.locator('#saveBtn').click();await (await download).saveAs(file('tool-resaved.xlsx'));
-        await page.waitForFunction(()=>!state.busy);await page.locator('#confirmDownload').click();
+        // Legacy IO remains a compatibility adapter. Main UI only writes v4;
+        // explicit migration/review is covered by workbook-v4 browser tests.
+        await exportFile('tool-resaved.xlsx',out.records,out.config);
       }
     }
     // Excel-generated legacy shared formulas must also pass strict validation.
     const legacyBytes=await readFile(file('legacy-resaved.xlsx'));
-    const old=await page.evaluate(async bytes=>{const out=await TrackerWorkbook.read(new Uint8Array(bytes));return {version:out.version,records:out.records}},[...legacyBytes]);
+    const old=await page.evaluate(async bytes=>{const out=await TrackerLegacyWorkbook.read(new Uint8Array(bytes));return {version:out.version,records:out.records}},[...legacyBytes]);
     assert.equal(old.version,'2.0');assert.equal(old.records.length,1);
     for(const storage of ['inline','shared']) {
       for(const suffix of ['','-resaved']) {
         const bytes=await readFile(file('phonetic-'+storage+suffix+'.xlsx'));
-        const parsed=await page.evaluate(async bytes=>{const out=await TrackerWorkbook.read(new Uint8Array(bytes));return {records:out.records,config:out.config}},[...bytes]);
+        const parsed=await page.evaluate(async bytes=>{const out=await TrackerLegacyWorkbook.read(new Uint8Array(bytes));return {records:out.records,config:out.config}},[...bytes]);
         assert.equal(parsed.records[0].note,'  Synthetic note 中文\n');
         if(suffix)await exportFile('phonetic-'+storage+'-tool.xlsx',parsed.records,parsed.config);
       }

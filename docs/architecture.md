@@ -1,92 +1,102 @@
 # 架构与 XLSX 数据契约
 
-## 数据与运行边界
+当前本地未提交实现 v0.5.0 / schema 4.0，计算版本 3.0；精确只读兼容 2.0/3.0。本文描述实际接口和历史兼容，产品目标见 [PROJECT_GOAL.md](PROJECT_GOAL.md)，实现状态见[路线图](roadmap.md)。
 
-`index.html` 是离线操作入口，使用 classic scripts，支持 Chrome / Edge 的 `file://`。`core.js` 提供纯计算和校验，`workbook.js` 负责 XLSX 读写，`reports.js` 生成只读视图和核对文本，`app.js` 管理表单、版本预览、显式保存和结转。运行不需要 Node.js、账号、API 或网络。
+Tool / Work Log / Config 是职责分离，不限定 Sheet 数量。现有六张 Sheet、批次/Invoice 分配、余额派生与审计保持完整兼容；这些不再是扩建方向，文档收敛不改变代码或携带条件。旧格式契约见 [archive/architecture-v3.md](archive/architecture-v3.md)，验证证据见[报告](reports/validation-history.md)。
 
-最新保留的 XLSX 是实际工作事实的唯一保存来源。浏览器内存和未提交表单不是持久化记录；Estimated、App Displayed、银行实际到账、确认结转余额始终分开。
+## 运行与数据权威
 
-## 公共结构：2.0 与 3.0
+`index.html` 由 classic scripts 组成，支持 Chrome/Edge 的 `file://`，没有远程请求、后台、自动上传、浏览器数据库或 XLSX 自动保存。最新保留的 XLSX 是实际事实的唯一持久来源。真实数据不进入仓库；测试只用合成数据。
 
-- 导出 Sheet 顺序固定为 `Tool`、`Work Log`、`Config`。读取按名称及 workbook relationships 定位，允许 Excel 调整 Sheet 顺序或内部 XML 文件名。
-- 仅支持精确的 schema `2.0` 和 `3.0`；其他版本拒绝读取。1904 日期系统暂不支持，明确报错。
-- Work Log 第 5 行为表头，第 6–305 行最多 300 条 Job / Carryover。导入检查范围之外的原始值，禁止截断；空行可以不存在。
-- 不允许增加、交换或删除列；表头必须与下表完全一致。输入列不能用公式代替原始值。公式列须符合对应版本；解析 shared formulas 后再比较。
+- `core.js`：2.0/3.0 计费、校验及 Excel 公式。
+- `reconciliation.js`：完整 Bundle、稳定 ID、原子业务命令、金额约束、App 历史、审计和跨期关联图。
+- `workbook.js`：旧格式适配器及共享 XML/公式解析；`workbook-v4.js`：4.0 严格读写及公共 facade。
+- `app.js`：工作输入、导入预览、显式保存及周期；`reconciliation-ui.js`：银行、批次、关联、问题和证据操作。
+- `reports.js`：当前文件新工作的月度视图与 Tim 清单。历史工作不参加新收入汇总。
 
-| 列 | 精确表头 | 类型 / 含义 |
-|---|---|---|
-| A | Date | Excel 1900 系统日期整数，Job 必填 |
-| B | Invoice ID | 文本 `INV-` 加至少四位数字；Job 可暂缺，同周期不能重复 |
-| C | Shift | 公式展示，禁止手动修改 |
-| D | Lunch (h) | 非负数字小时或空白；计算时空白为 0，保存仍为空白 |
-| E | Rate (NZD/h) | Job 的正数费率 |
-| F | Billable (AH) | 公式展示；3.0 固定两位小数，计算不依赖此文本 |
-| G | Expected (NZD) | 工作估算加 Extra，或已确认 Carryover 余额 |
-| H | App Shown (NZD) | 非负数或空白；空白与明确 0 不同 |
-| I | Difference | Expected − App；App 空白则空白，不表示欠款 |
-| J | Notes | 原始文本 |
-| K | Start [h] | Excel 时间小数，00:00–23:59 整分钟 |
-| L | End [h] | 同上，结束较早代表次日；相同时间拒绝，时长须小于 24h |
-| M | Entry type | 严格为 `Job` 或 `Carryover` |
-| N | Extra NZD | 有来源的额外费用，可空；保留原有负数调整能力 |
-| O | Carryover NZD | Carryover 的正数确认余额，最多两位小数 |
-| P | Raw hours | 原始时长公式 |
-| Q | Billable num | 计费小时公式 |
-| R | AH paid num | AH 计费小时公式 |
-| S | AH raw num | AH 原始小时公式 |
-| T | Base estimated | 不含 Extra 的估算公式 |
+Estimated、App Displayed、实际 Bank Payment、确认 CarryBalance 分开保存和展示，不合并成欠款。App 修正不确认付款，批次核对不产生 Invoice Paid。
 
-K:T 导出隐藏。Excel 编辑时间、Extra 或确认余额时需先取消相应列隐藏；不要修改 C/F/G/I/P:T 的公式。Carryover 不能填写新工作时间、费率、Lunch、Extra 或 App。
+## WorkbookBundle 与版本
 
-## Config 与计费
+Bundle 顶层固定为 `schemaVersion, calculationVersion, cycleId, fileId, fileVersionId, parentFileVersionId, sourceName, tables, audit, changes`。公共 `TrackerWorkbook.read(input)` 返回版本信息及完整 `bundle`（旧版为只读 records/config），外部 Excel 原始输入变化还返回待确认 `changes`。新 `write(bundle, options)` 只接受完整 4.0 Bundle，拒绝仅传 records 数组，以免漏导出结算资料。
 
-| 单元格 | 含义 |
+业务实体使用 UUID v4；编辑、Invoice 改号、排序与结转不改变 RecordID。Invoice 在逻辑工作间唯一，可空；同一天允许多项。新周期/文件使用新 ID，历史实体沿用原 ID。内存新建没有实际导出版本；writer 为实际文件生成 FileVersionID，并记录上一实际版本。下载须人工确认保留，才能作为新周期来源。
+
+旧 2.0/3.0 均只读，用户显式查看同组原始输入的旧/新计费结果后升级为 4.0，另存新文件。2.0 使用午夜截止旧算法展示，升级按确认的 06:00 AH 结束。没有的历史观察日期、原始工作或银行明细保持未知，不补造；迁移后的期初余额不是原 Invoice 全额或付款证明。不批量合并历史文件。
+
+## 当前 schema 4.0：六个 Sheet 与命名 Tables
+
+以下是当前 writer/模板的物理契约，不是三层架构的 Sheet 数量要求。按顺序保持前三张 `Tool / Work Log / Config`，追加 `Reconciliation / Entries / History`；共 20 个命名 Excel Tables。读取按 workbook relationships、Sheet 名称和 Table 名称定位，不固定 ZIP 路径，支持 Excel 保存、shared formulas、整表排序、稀疏空行。
+
+| Sheet | Table / 数据 |
 |---|---|
-| B5 | 最低计费小时，正数且不超过 24 |
-| B6 | AH 起点，Excel 时间小数 |
-| B7 | AH 倍数，至少 1 |
-| B8 | 差额提醒阈值，非负数 |
-| B9 | 只支持 `Standard first` |
-| B10 | 精确 schema 版本 |
-| B16 | **3.0 新增**：AH 结束时间，Excel 时间小数，与起点不同 |
-| B17 | **3.0 新增**：上次 Tool 保存时的规则 JSON 快照；第 17 行隐藏，请勿修改 |
+| Tool | RS_Workbook：版本、文件及当前周期身份；汇总区 |
+| Work Log | RS_WorkLog：本期 Job，A5:V305，最多 300 项 |
+| Config | RS_rules、RS_entrySettings、RS_ratePresets |
+| Reconciliation | RS_payments、RS_batches、RS_scope、RS_allocations、RS_confirmations、RS_balanceReferences、RS_issues、RS_evidence |
+| Entries | RS_cycles、RS_records：全部保留来源，含 Pending/Historical/Opening 与 Work Log 原始输入快照 |
+| History | RS_observations、RS_origins、RS_Audit、RS_Changes、RS_Integrity |
 
-快照固定键为 `minHours, ahStart, ahEnd, mult, tolerance, allocation`，AH 时间在 JSON 中使用小时（如 18、6），其余字段对应上述配置。快照用于对比当前原始记录在两套规则下的估算，不是付款或不可篡改审计证据。
+精确的全部列名、类型和顺序定义在 `TrackerReconciliation.TABLES`、`auditFields/changeFields` 及 `workbook-v4.js` 的 metadata/integrity 字段中。它们直接生成可审查的 Excel 列；关键金额和关系不放进隐藏 JSON 或批注。受控表须由 Tool 修改，Excel 可查看、筛选和排序，不能直接改内容；直接改受控表会拒绝导入。
 
-2026-11-07 用户确认的默认值：最低 2h、AH 每天 18:00–次日 06:00、1.5×；Lunch 先扣普通时段，再扣 AH。扣休息后不足最低时长，按剩余普通/AH 工时占比分配补足。按钟面分钟计算，未加入夏令时实际经过时长或节假日特殊规则。
+Work Log A:T 延续 [3.0 列契约](archive/architecture-v3.md)：A 日期、B Invoice、C Shift、D Lunch、E Rate、F Billable(AH)、G Expected、H App、I Difference、J Notes、K Start、L End、M Entry type、N Extra、O Carryover、P:T 计算辅助列。4.0 Work Log 仅存本期 Job，旧 Carryover 改存 Entries 的 Opening；追加 U RecordID、V Site，K:V 隐藏。整张 Excel Table 包含 U/V，排序必须覆盖整张 Table，不能只挪动 A:T 而拆开身份。
 
-金额在基础估算、加 Extra、差额三个步骤按两位小数舍入；内部工时不提前舍入。JS 与 Excel 使用同一版本口径，Excel 公式采用常规函数，不依赖 LET、动态数组或宏。
+Config 原单元格 B5:B10、B16:B17 保留，B10 为 4.0；B17 是兼容的计费规则快照，透明 RS_rules 才是受控规则记录。Default Rate/Rate Presets 目前只有存储与校验结构，新增表单尚未读取/管理默认费率。默认费率是下一实施项，Rate Presets 暂缓；表存在不代表体验已完成。
 
-## 版本兼容与显式升级
+## 字段、金额与规则
 
-- 原始 `RouterStack_Tracker_V2_Blank.xlsx` 保留不变。2.0 按旧算法只读打开：AH 仅从配置起点到午夜，最低工时不按 AH 占比补足。
-- 用户点击升级后，使用同一组原始字段逐笔比较旧算法与 3.0。取消不改变当前内容；确认后仍须另存 3.0。新 AH 结束默认使用已确认的 06:00，其余配置沿用选定工作簿。
-- 不批量迁移旧周期，不自动归并历史工作。没有历史快照的旧文件，不声称能恢复更早的规则或归档金额。
-- 3.0 的 Config 与 B17 不一致时，先展示整周期规则差异；取消保留当前记录和草稿，确认后标为待另存。导出时更新 B17。
-- 使用主版本 3.0 是因为旧工具接受所有 `2.x`；新文件必须让旧工具拒绝，避免按旧算法误读。
-- 导出使用 3.0 标准模板，保持业务原始字段；不复制用户添加的样式或其他自定义工作簿结构。公式不符或附加数据会明确拒绝，不静默抛弃。
+- 金额关系表用整数 **NZD cents**；付款/分配必须有限正数且最多两位小数；确认金额允许明确 0。未知为 `''`，不是 0。行中的比例、原始 Rate/App/Extra 为数值。日期为有效 YYYY-MM-DD，操作时间为含时区的 ISO 时间；证据确认日期支持日期或时间。
+- records.state 为 Job/Pending/Historical/Opening。Job 属当前周期；Historical 保存原周期及当时规则；Opening 只保留旧文件确认期初余额，不虚构原工作。Pending 的未知工时/理论金额/差额为空；补齐转正保留 ID，跨期补齐成为 Historical，不算本期收入。
+- 计算规则沿用 3.0（历史决策记录载明用户选择的估算模型，不是本轮重新确认的官方政策）：每日 AH 18:00–次日 06:00、1.5×、最低 2h；Lunch 普通优先，再扣 AH；最低补足按扣 Lunch 后普通/AH 占比分配。以钟面分钟计算跨午夜，内部小时不提前舍入，基础、加 Extra、差额分步两位小数。实际配置来自文件。
+- App 只有实际变化才添加 observation：原/新金额、观察与系统时间、来源、备注、Invoice 快照及当时计算规则、理论/差额。金额不变的保存/查看不创建金额历史。可以修订观察资料并另留审计，不能重写旧金额快照或系统时间。历史缺日期仍为空。
+- App 问题有自己的稳定 ID；150→180 对比理论 180 会 Resolved，原 30 差额仍在；独立付款问题不关闭。人工关闭保留差额；新财务事实再出现问题时重新打开同一 App 问题。
 
-## 保存与结转
+## 兼容实现：银行、付款关联和确认余额
 
-记录使用仅在浏览器内有效的稳定 ID 定位编辑，不新增 XLSX 列。记录修订、表单草稿、导出快照分别跟踪。导出期间新增的修改仍未保存。
+到账只需日期、实际金额，备注可选，不要求 Batch/Invoice。同日期同金额提示重复；明确确认是另一笔才添加，不自动合并。单笔到账最多一个有效批次，一个批次可含多笔到账。没有自动匹配、按日期推断、银行拆分到多批或自动分摊。
 
-默认另存带时间的新文件，拒绝写回已打开的文件。文件 API 写入必须成功 close 后才算该快照已保存；失败/取消保留内存。下载只能证明已发起，直到用户确认保留或打开文件前保留提醒；确认旧快照不会清除后续修改。
+关联付款前明确选择 payment、batch、record，Invoice 必须已知，并填写原因或证据摘要。可以在范围/口径未知时关联部分付款。银行有效分配总和始终不得超过实际到账。未知应结总额时，超过理论仅提示；人工确认 Payable 后是已知上限，已确认历史余额也约束新增付款关联。后来确认的上限低于既有付款时，保留付款事实、提示异常并要求相关批次复核，不截断旧分配。Opening 不是原 Invoice 全额，应结总额仍显示未知。撤销标记 Reversed，保留原行与审计。
 
-防覆盖句柄集合在整个浏览器会话内保留，打开其他文件或重开导出文件不清空；不持久化到其他浏览器会话。结转窗口的选择/金额单独跟踪草稿，关闭/ESC 明确确认放弃，离开页面会提醒；生成期间禁用金额、选择和关闭，失败/取消后恢复并保留输入。
+CarryBalance 确认保存 `paidAtConfirmationCents` 及已反映的 allocation IDs/cents。之后剩余 = 确认余额 −（当前有效关联 − 已反映关联）；连续结转不重复扣历史付款，撤销也按有效净额回算。Opening 的基点为旧文件的确认期初余额。已验证的 Balance 来源在批次级核对/解释关闭后不再作为余额重复结转；这不创建逐笔 Paid，重开会恢复待核对来源。
 
-创建新周期前须先保存并确认旧周期。只导出用户选择并输入确切余额的 Invoice，空选择需确认；新文件不自动替换当前旧周期。Carryover 保留原 Invoice/date/note，不计新工作数、不累加余额或重复追加备注，不使用 App 差额或银行总额推测欠款。
+## 兼容实现：批次核对与接续（不作为新开发方向）
 
-## 模板维护
+scope 行保存 Theory 或人工确认 Balance，含计算金额、confirmationId 和 sourceScopeId；同一来源全额/余额不能同时纳入，同一来源不能在多个开放比较重复占用。未确认 scope/basis 时 Expected 和 Difference 为未知，不以零替代：
 
-`scripts/generate-v3-template.mjs` 从空白 2.0 模板生成 3.0；`npm run template:sync` 将 3.0 嵌入 `src/template-data.js`。原模板不应含真实记录。变更后执行 `npm run check`、`npm run test:e2e`，计费/模板变更还需桌面 Excel 回归。
+`Expected Settlement = 选定理论金额 + 选定确认历史剩余`
 
-inline/shared strings 读取正文时，只取直接 `t` 或富文本 `r/t`，排除 `rPh` 注音及样式元数据；原始备注中的空白和换行保留。原始字符串写为带 `xml:space="preserve"` 的 inline string，公式字符串缓存仍采用原有格式，避免桌面 Excel 截掉正文空白。标准模板导出不复制注音/富文本样式，不能将提示文本并入原始事实。
+`Actual Settlement = 本批次有效银行到账总额`
 
-## v0.4 只读统计与清单
+`Pending Settlement Difference = Expected − Actual`（不是已确认欠款）。
 
-- `TrackerReports` 的 `months/issues/totals/view/timReport` 仅消费当前文件的已校验记录、Config 和计算版本，不修改记录或写入 XLSX。2.0 只读模式沿用旧计算口径。
-- 月份列表只由 Job 日期产生，跨午夜/跨月工作也按其原工作日期整项归属，不拆分同一 Invoice。月度合计包含该月份全部 Job，不受搜索/提醒筛选影响；只对已填 App 的工作汇总可比 Expected/App，Difference 为逐笔舍入后合计。文件总览使用全部 Job 的同一统计口径。Carryover 不参加新工作数量、工时或预计金额。
-- 提醒包括缺 Invoice、缺 App、差额绝对值超过 Config 容差。明确 App=0 正常参与比较；空白保持待填，不变成零。
-- 结转区单列全文件确认余额；月份和工作提醒不影响它，文本搜索只影响可见结转行。保存仍使用全量 `state.records`，不导出筛选后的子集。
-- Tim 默认范围为所选月份差额/待补 Job 加全文件 Carryover；另外支持可见记录、所选月份全部工作。复制的金额、总数和范围明确，不反推银行分配或付款状态；未保存内容有提示，未提交的工作表单须先提交或取消。
-- 清单中的备注换行/分隔符仅作单行显示整理，不修改 XLSX 原始文本。月度视图与复制范围是浏览器查看状态，不写入 Config，也不产生 schema 迁移。
+用户确认范围、金额口径和完整到账，并明确填写核对日期/原因或摘要后，匹配批次可手动 Reconciled；无逐笔证明仍足够，银行不重复变成 Unallocated。非零差额可凭依据 ClosedExplained，仍展示原差额，不能称金额匹配。独立 Invoice/App 争议继续开放。关闭/重开都留审计。后补逐笔证据只增加关联，不新增银行收入。已关联原始字段/应结依据更正需预览影响，旧分配及旧 scope 保留，相关批次 ReviewRequired。
+
+旧待核对差额默认仅作参考。继续原批次无需创建第二份余额；如需接续新批次，先确认真实剩余并凭处理依据解释关闭旧比较，再把同一 RecordID 的确认 Balance 纳入新批次。新 scope 自动引用该来源上个关闭比较的 sourceScopeId，旧差额只保留历史，不再次合计为追款。不能重复纳入旧工作理论全额，也不能把已核对余额再次纳入。
+
+证据保留确认日期、原因、摘要、来源、引用和创建时间，不嵌附件，不自动访问路径/链接。修订证据另记字段前后值。
+
+## 审计、完整性与 Excel 编辑
+
+所有 Tool 命令先在完整 Bundle 副本中原子执行，检查约束后添加事件及逐字段 Changes，再严格校验回放。审计含来源文件、原始顺序、系统时间、原因与证据；Change 含实体、字段、原/新类型和值。可在界面查看完整审计及字段变化。
+
+RS_Integrity 使用规范化受控表的 SHA-256，导入还校验类型、引用、ID、分配上限、精确表头/版本、计算公式（含 shared formulas）与完整审计回放。它用于检测意外修改/损坏，**不是防恶意篡改的数字签名**。缺关联、事件、公式或不支持的自定义公式均明确拒绝，不静默修补。原文本保留首尾空白/换行，排除 rPh 注音提示；字符串按文本存储，不执行输入里的公式。
+
+Excel 仅修改 Work Log 原始字段与 Config。读出与受控快照的差异作为 proposal，先显示字段前后值和理论变化；取消不改变当前资料和草稿，接受后添加来源与变更审计。已关联记录/规则变更保留原付款与比较快照并要求复核。尚未确认 proposal 的旧 Bundle 不能导出，防止写回旧快照。管理表直接修改、未知数据区域/结构、超过第 300 条记录都拒绝。
+
+## 当前保存和完整跨期行为
+
+分别跟踪工作草稿、对账输入、周期资料、内存修订和导出版本。保存/切换/复制前必须提交或明确取消草稿；导入失败保持当前数据和输入，导入替换需确认，离开页面提醒。导出用完整快照且阻止重复导出；导出期间后续工作修改仍未保存。
+
+默认另存带时间的新版本，会话持续保护曾打开/导出的文件句柄；拒绝写回归档。直接写文件等待 write 与 close 成功，失败/取消保留内存和输入；下载只表示已发起，用户确认保留后才清除对应版本提醒。下载旧快照的确认不清除新修改。
+
+当前代码仍携带未获批次核对覆盖的完整工作，App 匹配不等于可归档；此行为尚未按轻量目标改写。
+
+新周期前先保存并确认当前周期；名称必填，日期范围可选。自动带入全部未解决事项，不能在弹窗漏选：Pending、缺 Invoice/App、未获核对覆盖的工作、开放批次/独立争议、未核对银行、确认余额及金额异常。通过关联图保留必要的原工作/规则/App/付款/撤销/证据/审计，剔除无关已解决记录；审计只保留关联实体完整变更链，来源事件 ID 与原始序号不变，本文件顺序连续。结构/引用/账本矛盾阻止导出，真实业务不确定性正常携带。
+
+新 Work Log 空白，旧 Job 变 Historical，来源 ID/周期/金额不变。生成文件后旧周期仍打开，需打开新文件继续。新文件不依赖旧路径、附件或外部公式。连续两次结转不增加收入/付款或重复扣减余额。
+
+## 模板与验证
+
+4.0 模板由 `scripts/generate-v4-template.mjs` 生成，`npm run template:sync` 内嵌；模板不带业务实体、周期或文件身份。旧 2.0/3.0 模板和 core 计算保留。任何 schema/解析/导出变更都运行 `npm run check`、浏览器新增→保存→重开→结转，以及 Windows 桌面 Excel 往返。实际证据、限制及未验证部分记录在[验证历史](reports/validation-history.md)，CI 只验本地可重复的语法/模板/单元/浏览器测试，不声称覆盖桌面 Excel。
+
+沿用本工具单个 XML 文本的解析容量保护，阈值为 16×1024×1024 个 JavaScript 字符串 length 单元。4.0 导出也先检查同一上限，超限明确拒绝并保留内存，不能生成本工具无法重开的文件，也不会截断历史。此限制独立于本期 Work Log 的 300 条数量限制；积累大量历史或超长文本时仍受 XML 容量约束。

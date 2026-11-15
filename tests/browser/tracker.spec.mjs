@@ -1,13 +1,15 @@
 import {test,expect} from '@playwright/test';
 import {add,download,open,legacy,mutate,withPhoneticNote,url} from './helpers.mjs';
 const observed=new WeakMap();
+async function confirmCarry(page){await page.evaluate(()=>{useBundle(TrackerReconciliation.confirmAmount(state.bundle,{recordId:state.bundle.tables.records[0].id,kind:'CarryBalance',amount:27.35,reason:'Synthetic confirmed balance'}));state.revision++;showRows()})}
+async function cycleDraft(page){await page.locator('#cycleBtn').click();await page.locator('#cycleName').fill('Synthetic next cycle')}
 test.beforeEach(async({page})=>{
   const seen={errors:[],remote:[],dialogs:[]};observed.set(page,seen);
   page.on('dialog',async dialog=>{seen.dialogs.push(dialog.message());await dialog.accept()});
   page.on('pageerror',error=>seen.errors.push(error.message));
   page.on('request',request=>{if(/^https?:/.test(request.url()))seen.remote.push(request.url())});
   await page.addInitScript(()=>{window.showSaveFilePicker=undefined;window.showOpenFilePicker=undefined});
-  await page.goto(url);await expect(page.locator('#statusBar')).toContainText('3.0');
+  await page.goto(url);await expect(page.locator('#statusBar')).toContainText('4.0');
 });
 test.afterEach(async({page})=>{
   expect(observed.get(page).errors).toEqual([]);expect(observed.get(page).remote).toEqual([]);
@@ -18,11 +20,12 @@ test('offline add → save → reopen → partial carryover → second carryover
   const bytes=await download(page);await open(page,bytes);
   expect(await page.evaluate(()=>state.records.map(({uid,...record})=>record))).toEqual(before);
   await expect(page.locator('#kJobs')).toHaveText('2');
+  await confirmCarry(page);await download(page);
   const source=await page.evaluate(()=>JSON.stringify(state.records));
-  await page.locator('#cycleBtn').click();await page.locator('[data-carry-id]').first().check();await page.locator('[data-carry-amount]').first().fill('27.35');
+  await cycleDraft(page);
   const carry=await download(page,'#createCycle');expect(await page.evaluate(()=>JSON.stringify(state.records))).toBe(source);
   await open(page,carry,'carry.xlsx');await expect(page.locator('#kJobs')).toHaveText('0');await expect(page.locator('#kExpected')).toHaveText('$0.00');await expect(page.locator('#carrySummary')).toContainText('$27.35');await expect(page.locator('#kApp')).toHaveText('—');await expect(page.locator('#kDiff')).toHaveText('—');
-  await page.locator('#cycleBtn').click();await page.locator('[data-carry-id]').check();
+  await cycleDraft(page);
   const second=await download(page,'#createCycle');await open(page,second,'carry2.xlsx');
   expect(await page.evaluate(()=>state.records.map(record=>({invoice:record.invoice,balance:record.balance,note:record.note})))).toEqual([{invoice:'INV-9001',balance:'27.35',note:before[0].note}]);
 });
@@ -82,18 +85,18 @@ test('source handles cannot be overwritten under a different filename',async({pa
 test('reopening exports retains all source and exported archive handles',async({page})=>{
   await add(page);
   const result=await page.evaluate(async()=>{
-    const bytes=await(await TrackerWorkbook.write(state.records,state.config)).arrayBuffer(),files=new Map([['A',bytes]]),writes=[];
+    const bytes=await(await TrackerWorkbook.write(state.bundle)).arrayBuffer(),files=new Map([['A',bytes]]),writes=[];
     const handle=(id,name)=>({id,name,isSameEntry:async other=>other.id===id,createWritable:async()=>({write:async blob=>{writes.push(id);files.set(id,await blob.arrayBuffer())},close:async()=>{},abort:async()=>{}})});
     const A=handle('A','original-A.xlsx'),B=handle('B','version-B.xlsx');
     await takeFile(new File([bytes],A.name),A);
-    state.records.push(...identified([{...state.records[0],invoice:'INV-9002'}]));state.revision++;showRows();
+    useBundle(TrackerReconciliation.addRecord(state.bundle,{...state.records[0],invoice:'INV-9002'}));state.revision++;showRows();
     window.showSaveFilePicker=async()=>B;
-    await exportSnapshot(JSON.parse(JSON.stringify(state.records)),{...state.config},state.revision,'same');
+    await exportSnapshot(JSON.parse(JSON.stringify(state.bundle)),{...state.config},state.revision,'same');
     await takeFile(new File([files.get('B')],B.name),B);
     // An input upload without a handle must not forget known archives either.
     await takeFile(new File([files.get('B')],'input-upload.xlsx'));
     window.showSaveFilePicker=async()=>A;
-    const allowed=await exportSnapshot(JSON.parse(JSON.stringify(state.records)),{...state.config},state.revision,'same');
+    const allowed=await exportSnapshot(JSON.parse(JSON.stringify(state.bundle)),{...state.config},state.revision,'same');
     return {allowed,writes,originalCount:(await TrackerWorkbook.read(files.get('A'))).records.length,protected:state.protectedHandles.map(h=>h.id)};
   });
   expect(result).toEqual({allowed:false,writes:['B'],originalCount:1,protected:['A','B']});
@@ -101,44 +104,44 @@ test('reopening exports retains all source and exported archive handles',async({
 test('carryover drafts warn before unload and require explicit dismissal',async({page})=>{
   await add(page);await download(page);await page.locator('#cycleBtn').click();
   expect(await page.evaluate(()=>hasCarryDraft())).toBe(false);
-  await page.locator('[data-carry-id]').check();await page.locator('[data-carry-amount]').fill('27.35');
+  await page.locator('#cycleName').fill('Synthetic next cycle');
   expect(await page.evaluate(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented})).toBe(true);
   page.removeAllListeners('dialog');page.on('dialog',d=>d.dismiss());
   await page.locator('#closeCycle').click();await expect(page.locator('#cycleModal')).toBeVisible();
-  await page.keyboard.press('Escape');await expect(page.locator('#cycleModal')).toBeVisible();await expect(page.locator('[data-carry-amount]')).toHaveValue('27.35');
+  await page.keyboard.press('Escape');await expect(page.locator('#cycleModal')).toBeVisible();await expect(page.locator('#cycleName')).toHaveValue('Synthetic next cycle');
   page.removeAllListeners('dialog');page.on('dialog',d=>d.accept());await page.locator('#closeCycle').click();
   await expect(page.locator('#cycleModal')).not.toBeVisible();expect(await page.evaluate(()=>hasUnsaved())).toBe(false);
-  await page.locator('#cycleBtn').click();await page.locator('[data-carry-id]').check();await page.locator('[data-carry-amount]').fill('27.35');
+  await cycleDraft(page);
   // A delayed file read may complete while a modal is open. Accepting replacement discards its old candidates.
-  await page.evaluate(async()=>{const records=state.records.map(record=>({...record,invoice:'INV-9998'}));const blob=await TrackerWorkbook.write(records,state.config);await takeFile(new File([blob],'replacement.xlsx'))});
+  await page.evaluate(async()=>{const bundle=TrackerReconciliation.updateRecord(state.bundle,state.bundle.tables.records[0].id,{invoice:'INV-9998'});const blob=await TrackerWorkbook.write(bundle);await takeFile(new File([blob],'replacement.xlsx'))});
   await expect(page.locator('#cycleModal')).not.toBeVisible();expect(await page.evaluate(()=>({candidates:state.carryCandidates.length,unsaved:hasUnsaved(),invoice:state.records[0].invoice}))).toEqual({candidates:0,unsaved:false,invoice:'INV-9998'});
 });
 test('carryover inputs and dismissal stay locked until snapshot writing closes',async({page})=>{
-  await add(page);await download(page);await page.locator('#cycleBtn').click();await page.locator('[data-carry-id]').check();await page.locator('[data-carry-amount]').fill('27.35');
+  await add(page);await confirmCarry(page);await download(page);await cycleDraft(page);
   await page.evaluate(()=>{window.showSaveFilePicker=async()=>({name:'new-cycle.xlsx',createWritable:async()=>({write:async blob=>{window.cycleBytes=[...new Uint8Array(await blob.arrayBuffer())]},close:()=>new Promise(resolve=>{window.finishCycle=resolve;window.cyclePaused=true}),abort:async()=>{}})})});
   await page.locator('#createCycle').click();await page.waitForFunction(()=>window.cyclePaused);
-  await expect(page.locator('[data-carry-amount]')).toBeDisabled();await expect(page.locator('[data-carry-id]')).toBeDisabled();await expect(page.locator('#closeCycle')).toBeDisabled();
+  await expect(page.locator('#cycleName')).toBeDisabled();await expect(page.locator('#cycleStart')).toBeDisabled();await expect(page.locator('#closeCycle')).toBeDisabled();
   await page.keyboard.press('Escape');await expect(page.locator('#cycleModal')).toBeVisible();
   await page.evaluate(()=>window.finishCycle());await page.waitForFunction(()=>!state.busy);await expect(page.locator('#cycleModal')).not.toBeVisible();
   expect(await page.evaluate(async()=>({balance:(await TrackerWorkbook.read(new Uint8Array(window.cycleBytes))).records[0].balance,unsaved:hasUnsaved()}))).toEqual({balance:'27.35',unsaved:false});
 });
 for(const failure of ['cancel','write','close'])test('carryover draft survives generation failure: '+failure,async({page})=>{
-  await add(page);await download(page);await page.locator('#cycleBtn').click();await page.locator('[data-carry-id]').check();await page.locator('[data-carry-amount]').fill('27.35');
+  await add(page);await download(page);await cycleDraft(page);
   await page.evaluate(failure=>{window.showSaveFilePicker=async()=>{if(failure==='cancel')throw new DOMException('Cancelled','AbortError');return {name:'new-cycle.xlsx',createWritable:async()=>({write:async()=>{if(failure==='write')throw Error('Synthetic write failure')},close:async()=>{if(failure==='close')throw Error('Synthetic close failure')},abort:async()=>{}})}}},failure);
   await page.locator('#createCycle').click();await page.waitForFunction(()=>!state.busy);
-  await expect(page.locator('#cycleModal')).toBeVisible();await expect(page.locator('[data-carry-amount]')).toBeEnabled();await expect(page.locator('[data-carry-amount]')).toHaveValue('27.35');expect(await page.evaluate(()=>hasUnsaved())).toBe(true);
+  await expect(page.locator('#cycleModal')).toBeVisible();await expect(page.locator('#cycleName')).toBeEnabled();await expect(page.locator('#cycleName')).toHaveValue('Synthetic next cycle');expect(await page.evaluate(()=>hasUnsaved())).toBe(true);
 });
 for(const storage of ['inline','shared'])test('phonetic hints never change original note text: '+storage,async({page})=>{
   await add(page);const bytes=await download(page),annotated=await withPhoneticNote(page,bytes,storage);
-  await open(page,annotated);expect(await page.evaluate(()=>state.records[0].note)).toBe('  Synthetic note 中文\n');
+  await open(page,annotated);await expect(page.locator('#reviewRows')).toContainText('Notes:');await page.locator('#reviewConfirm').click();expect(await page.evaluate(()=>state.records[0].note)).toBe('  Synthetic note 中文\n');
   const saved=await download(page);await open(page,saved);expect(await page.evaluate(()=>state.records[0].note)).toBe('  Synthetic note 中文\n');
 });
 test('legacy is read-only; upgrade cancellation and acceptance preserve raw inputs',async({page})=>{
   const bytes=await legacy();await open(page,bytes,'legacy.xlsx');await expect(page.locator('#saveBtn')).toBeDisabled();await expect(page.locator('#kExpected')).toHaveText('$150.00');
-  const before=await page.evaluate(()=>JSON.stringify(state.records));
+  const before=await page.evaluate(()=>state.records.map(({uid,site,...record})=>({...record,rate:Number(record.rate)})));
   await page.locator('#upgradeBtn').click();await expect(page.locator('#reviewRows')).toContainText('$180.00');await page.locator('#reviewCancel').click();expect(await page.evaluate(()=>state.version)).toBe('2.0');
-  await page.locator('#upgradeBtn').click();await page.locator('#reviewConfirm').click();expect(await page.evaluate(()=>JSON.stringify(state.records))).toBe(before);await expect(page.locator('#kExpected')).toHaveText('$180.00');
-  const exported=await download(page);await open(page,exported);expect(await page.evaluate(()=>state.version)).toBe('3.0');
+  await page.locator('#upgradeBtn').click();await page.locator('#reviewConfirm').click();expect(await page.evaluate(()=>state.records.map(({uid,site,...record})=>({...record,rate:Number(record.rate)})))).toEqual(before);await expect(page.locator('#kExpected')).toHaveText('$180.00');
+  const exported=await download(page);await open(page,exported);expect(await page.evaluate(()=>state.version)).toBe('4.0');
 });
 test('Config changes require review; cancelling leaves records and draft intact',async({page})=>{
   await add(page,{start:'17:00',end:'19:00'});const bytes=await download(page);
@@ -158,11 +161,11 @@ test('relationship paths, sheet reordering, sparse blank rows and shared formula
   }
 });
 test('capacity blocks the 301st add while retaining its form',async({page})=>{
-  await page.evaluate(()=>{const record={kind:'Job',date:'2026-01-10',invoice:'',start:'09:00',end:'10:00',lunch:'',rate:'60',app:'',extra:'',note:'Synthetic',balance:''};state.records=identified(Array.from({length:300},()=>({...record})));state.revision++;showRows()});
+  await page.evaluate(()=>{const record={kind:'Job',date:'2026-01-10',invoice:'',start:'09:00',end:'10:00',lunch:'',rate:'60',app:'',extra:'',note:'Synthetic',balance:''};useBundle(TrackerReconciliation.migrate({version:'3.0',config:{...TrackerCore.DEFAULT_CONFIG},records:Array.from({length:300},()=>({...record}))}));state.revision++;showRows()});
   await add(page,{invoice:'INV-9999',note:'Not lost'});await expect(page.locator('#formError')).toContainText('300');await expect(page.locator('#note')).toHaveValue('Not lost');expect(await page.evaluate(()=>state.records.length)).toBe(300);
 });
 test('empty new cycle is explicitly confirmed',async({page})=>{
-  await add(page);await download(page);await page.locator('#cycleBtn').click();const bytes=await download(page,'#createCycle');await open(page,bytes);expect(await page.evaluate(()=>state.records)).toEqual([]);
+  await download(page);await cycleDraft(page);const bytes=await download(page,'#createCycle');await open(page,bytes);expect(await page.evaluate(()=>state.records)).toEqual([]);expect(observed.get(page).dialogs.some(text=>text.includes('没有未解决事项'))).toBe(true);
 });
 const invalidCases=[
   ['wrong header',[{ref:'E5',value:'App Shown (NZD)'}],'E5'],
@@ -203,7 +206,7 @@ async function loadReportFixture(page,onlyOne=false) {
     const job=changes=>({kind:'Job',date:'2026-01-10',invoice:'INV-9001',start:'09:00',end:'10:00',lunch:'',rate:'60',app:'',extra:'',note:'Synthetic report',balance:'',...changes});
     const carry=changes=>({kind:'Carryover',date:'2026-01-02',invoice:'INV-9991',start:'',end:'',lunch:'',rate:'',app:'',extra:'',note:'Synthetic carry',balance:'27.35',...changes});
     const records=onlyOne?[job({date:'2026-05-01'})]:[job({invoice:''}),job({invoice:'INV-9002',start:'19:00',end:'20:00',extra:'10',app:'150'}),job({invoice:'INV-9003',app:'0'}),job({invoice:'INV-9004',date:'2026-02-01',app:'120'}),job({invoice:'INV-9005',date:'2026-02-02',app:'120.01'}),carry(),carry({invoice:'INV-9992',date:'2025-12-01',balance:'10'})];
-    const blob=await TrackerWorkbook.write(records,{...TrackerCore.DEFAULT_CONFIG});await takeFile(new File([blob],'synthetic-report.xlsx'));
+    const blob=await TrackerWorkbook.write(TrackerReconciliation.migrate({version:'3.0',records,config:{...TrackerCore.DEFAULT_CONFIG}}));await takeFile(new File([blob],'synthetic-report.xlsx'));
     Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedReport=text}}});
   },onlyOne);
 }

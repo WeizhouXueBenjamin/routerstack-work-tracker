@@ -78,6 +78,8 @@ export async function mutate(page,bytes,operations=[],mode='') {
     if(mode==='relationships') {
       const old='xl/worksheets/sheet2.xml', next='xl/worksheets/jobs-renamed.xml';zip.file(next,await zip.file(old).async('string'));zip.remove(old);
       zip.file('xl/_rels/workbook.xml.rels',(await zip.file('xl/_rels/workbook.xml.rels').async('string')).replace('/worksheets/sheet2.xml','/worksheets/jobs-renamed.xml'));
+      const oldRels='xl/worksheets/_rels/sheet2.xml.rels';if(zip.file(oldRels)){zip.file('xl/worksheets/_rels/jobs-renamed.xml.rels',await zip.file(oldRels).async('string'));zip.remove(oldRels)}
+      zip.file('[Content_Types].xml',(await zip.file('[Content_Types].xml').async('string')).replace('/xl/worksheets/sheet2.xml','/xl/worksheets/jobs-renamed.xml'));
       const book=new DOMParser().parseFromString(await zip.file('xl/workbook.xml').async('string'),'application/xml'), sheets=book.getElementsByTagNameNS(NS,'sheets')[0];sheets.insertBefore(sheets.lastElementChild,sheets.firstElementChild);zip.file('xl/workbook.xml',new XMLSerializer().serializeToString(book));
     }
     if(mode==='shared' || mode==='broken-shared') {
