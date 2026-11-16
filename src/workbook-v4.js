@@ -68,7 +68,7 @@
         const doc=await I.xml(zip,path),table=doc.documentElement,key=(table.getAttribute('displayName') || '').replace(/^RS_/,'');
         if(table.localName!=='table' || !table.getAttribute('displayName')?.startsWith('RS_') || table.getAttribute('name')!==table.getAttribute('displayName') || found[key] || !/^[1-9]\d*$/.test(table.getAttribute('id') || '') || ids.has(table.getAttribute('id')))fail(name+': Table 名称或 ID 无效');
         ids.add(table.getAttribute('id'));
-        const spec=key==='WorkLog'?{sheet:'Work Log',fields:Object.fromEntries([...C.HEADERS,'Record ID','Site'].map(header=>[header,'text']))}:SPECS[key];
+        const spec=key==='WorkLog'?{sheet:'Work Log',fields:Object.fromEntries([...C.HEADERS,'Record ID','Site'].map(header=>[header,'text']))}:(found.Workbook?.rows[0]?.schemaVersion==='4.0'?R.TABLES_V4[key]:null) || SPECS[key];
         if(!spec || spec.sheet!==name)fail(name+': 未支持或放错位置的 Table '+key);
         if(table.getAttribute('totalsRowCount') && table.getAttribute('totalsRowCount')!=='0')fail(name+': 不支持自定义 Table 汇总行');
         const range=rectangle(table.getAttribute('ref')),columns=I.children(I.first(table,'tableColumns'),'tableColumn'),fields=Object.entries(spec.fields);
@@ -129,13 +129,13 @@
     const {data,sheets}=await tables(zip,paths,strings);
     if(data.Workbook.length!==1 || data.Integrity.length!==1)fail('Tool: 元数据或完整性记录数量无效');
     const metadata=data.Workbook[0],integrity=data.Integrity[0];
-    if(metadata.id!=='document' || metadata.schemaVersion!=='4.0' || metadata.calculationVersion!=='3.0' || integrity.id!=='data' || integrity.algorithm!=='SHA-256' || integrity.digest!==await digest(payload(data)))fail('Tool / RS_Integrity: 数据摘要不一致，对账数据或历史可能被直接修改');
-    const settings=I.readConfig(sheets.Config,strings,['4.0']);
+    if(metadata.id!=='document' || !['4.0','4.1'].includes(metadata.schemaVersion) || metadata.calculationVersion!=='3.0' || integrity.id!=='data' || integrity.algorithm!=='SHA-256' || integrity.digest!==await digest(payload(data)))fail('Tool / RS_Integrity: 数据摘要不一致，对账数据或历史可能被直接修改');
+    const settings=I.readConfig(sheets.Config,strings,[metadata.schemaVersion]);
     I.checkTool(sheets.Tool,{carryover:false});
     const records=I.readLog(sheets['Work Log'],{version:'3.0',config:settings.config},strings,{extras:{U:'Record ID',V:'Site'},withRowNumbers:true});
     if(metadata.isTemplate) {
       if(records.length || Object.keys(R.TABLES).some(key=>data[key].length) || data.Audit.length || data.Changes.length || metadata.cycleId || metadata.fileId || metadata.fileVersionId || metadata.parentFileVersionId || metadata.sourceName)fail('空白模板含有业务数据或身份，拒绝读取');
-      return {bundle:R.create({rules:settings.config}),changes:[],isTemplate:true};
+      return {bundle:R.create({rules:settings.config,schemaVersion:metadata.schemaVersion}),changes:[],isTemplate:true};
     }
     const bundle=fromRows(metadata,data);
     if(C.configSnapshot(settings.baseline)!==C.configSnapshot(R.config(bundle)))fail('Config!B17: 规则基线与受控记录不一致');
@@ -178,7 +178,7 @@
     for(const file of zip.file(/^xl\/tables\//))zip.remove(file.name);
     for(const name of SHEETS)for(const element of [...sheets[name].doc.documentElement.children])if(['tableParts','extLst'].includes(element.localName))element.remove();
     const cfg=sheets.Config,log=sheets['Work Log'],tool=sheets.Tool;
-    I.set(cfg,'B10','4.0');I.set(cfg,'A1','CONFIG / Rules and Entry Settings v4.0');
+    I.set(cfg,'B10',exported.schemaVersion);I.set(cfg,'A1','CONFIG / Rules and Entry Settings v'+exported.schemaVersion);
     I.set(tool,'A1','ROUTERSTACK / WORK TOOL V4');I.set(tool,'A4','离线打开 index.html；对账由 Tool 操作，后续 Sheets 为透明数据表，原文件另存归档。');
     I.set(tool,'A10','确认历史剩余（Tool 保存快照）');
     I.set(tool,'B10',R.confirmedCarryTotal(exported)/100);
@@ -213,7 +213,7 @@
     addTable('WorkLog',log,Object.fromEntries([...C.HEADERS,'Record ID','Site'].map(field=>[field,'text'])),[],5);
     // Include the existing 300 formula/input rows when Excel sorts the Work Log table.
     const workTable=I.parse(await zip.file('xl/tables/table1.xml').async('string'),'Work Log table');workTable.documentElement.setAttribute('ref','A5:V305');I.first(workTable.documentElement,'autoFilter').setAttribute('ref','A5:V305');zip.file('xl/tables/table1.xml',I.serialize(workTable));
-    for(const [key,spec] of Object.entries(SPECS)) {
+    for(const [key,spec] of Object.entries({...SPECS,...R.tablesFor(exported)})) {
       const sheet=sheets[spec.sheet],title=cursors[spec.sheet];I.set(sheet,'A'+title,'RS_'+key);
       cursors[spec.sheet]=addTable(key,sheet,spec.fields,data[key],title+1)+4;
     }
@@ -236,7 +236,7 @@
     const zip=await JSZip.loadAsync(input),book=await I.xml(zip,'xl/workbook.xml');
     if(book.getElementsByTagNameNS(NS,'sheet').length===3)return {...await root.TrackerLegacyWorkbook.read(input),readOnly:true};
     const result=await read(input);
-    return {...result,version:'4.0',config:R.config(result.bundle),records:R.viewRecords(result.bundle),readOnly:false};
+    return {...result,version:result.bundle.schemaVersion,config:R.config(result.bundle),records:R.viewRecords(result.bundle),readOnly:result.bundle.schemaVersion!=='4.1'};
   }
   root.TrackerWorkbook=Object.freeze({read:readAny,write});
 })(globalThis);

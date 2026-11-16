@@ -16,7 +16,7 @@ test('schema 4 business state is immutable, replayable and keeps actual rate per
 });
 
 test('App 150 to 180 preserves the original 30 and never creates bank payments',()=>{
-  const one=R.addRecord(R.create({at}),job(),{at}),id=one.tables.records[0].id;
+  const one=R.addRecord(R.create({at,schemaVersion:'4.0'}),job(),{at}),id=one.tables.records[0].id;
   const fixed=R.updateRecord(one,id,{app:'180'},{at:'2026-01-11T09:00:00.000Z'});
   assert.equal(fixed.tables.observations.length,2);
   assert.equal(fixed.tables.observations[0].differenceCents,3000);
@@ -68,7 +68,7 @@ test('direct edits, lost events, duplicate IDs and orphan relationships are reje
 test('legacy migration keeps balances and unknown history without inventing payments',()=>{
   const raw={version:'3.0',config:{...C.DEFAULT_CONFIG},records:[{kind:'Job',balance:'',...job()},{kind:'Carryover',date:'',invoice:'INV-9999',start:'',end:'',lunch:'',rate:'',app:'',extra:'',note:'Synthetic opening',balance:'27.35'}]};
   const before=JSON.stringify(raw),bundle=R.migrate(raw,{sourceName:'synthetic-v3.xlsx',at});
-  assert.equal(JSON.stringify(raw),before);assert.equal(bundle.schemaVersion,'4.0');assert.equal(R.currentRecords(bundle).length,1);
+  assert.equal(JSON.stringify(raw),before);assert.equal(bundle.schemaVersion,'4.1');assert.equal(R.currentRecords(bundle).length,1);
   assert.equal(R.calculate(bundle,bundle.tables.records[0]).total,180);
   const opening=bundle.tables.records[1];assert.equal(opening.state,'Opening');assert.equal(opening.openingCents,2735);
   assert.equal(opening.originCycleId,'');assert.equal(opening.originRecordId,'');assert.equal(opening.start,'');assert.equal(opening.rate,'');

@@ -114,7 +114,8 @@ test('confirmed residual continuation links back to the closed comparison withou
 });
 
 test('App manual closure is stable until new financial facts; observation metadata edits add no amount rows',()=>{
-  let b=R.addRecord(R.create(),job({app:150})),id=last(b,'records'),issue=last(b,'issues');
+  let b=R.addRecord(R.create({schemaVersion:'4.0'}),job({app:150})),id=last(b,'records'),issue=last(b,'issues');
+  b=R.upgradeV4(b);
   b=R.setIssueStatus(b,issue,'Closed',proof);b=R.updateRecord(b,id,{note:'Synthetic note only'});assert.equal(R.get(b,'issues',issue).status,'Closed');
   b=R.updateRecord(b,id,{app:160});assert.equal(R.get(b,'issues',issue).status,'Open');assert.equal(b.tables.issues.filter(row=>row.kind==='App').length,1);
   const observation=b.tables.observations.at(-1),snapshot=R.clone(observation);b=R.reviseObservation(b,observation.id,{source:'Synthetic source',observedAt:'2026-01-12T14:00:00Z',note:'Synthetic correction'});

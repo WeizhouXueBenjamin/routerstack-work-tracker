@@ -19,6 +19,11 @@ try {
   $tableCountV4 = 0
   foreach ($sheetV4 in $bookV4.Worksheets) { $tableCountV4 += $sheetV4.ListObjects.Count }
   Assert-V4 ($tableCountV4 -eq 20) 'Expected twenty transparent v4 Tables'
+  Assert-V4 ($bookV4.Worksheets.Item('Config').Range('B10').Value2 -ceq $expectedV4.schemaVersion) 'Workbook schema version'
+  $recordTableV4 = $bookV4.Worksheets.Item('Entries').ListObjects.Item('RS_records')
+  Assert-V4 ($recordTableV4.ListColumns.Item($recordTableV4.ListColumns.Count).Name -ceq 'reminderKinds') 'Appended reminder scope column'
+  $issueTableV4 = $bookV4.Worksheets.Item('Reconciliation').ListObjects.Item('RS_issues')
+  Assert-V4 ($issueTableV4.ListColumns.Item($issueTableV4.ListColumns.Count).Name -ceq 'amountCents') 'Appended nullable reference amount column'
   $logV4 = $bookV4.Worksheets.Item('Work Log')
   Assert-V4 ($logV4.Range('U6').Value2 -ceq $expectedV4.targetId) 'First stable Record ID'
   Assert-V4 ($logV4.Range('J6').Value2 -ceq $expectedV4.note) 'Note whitespace/newline preserved'
@@ -65,7 +70,7 @@ try {
   }
   & node (Join-Path $PSScriptRoot 'excel-v4-fixtures.mjs') verify-carry $artifactFolder
   if ($LASTEXITCODE -ne 0) { throw 'Verifying carried v4 Excel fixtures failed' }
-  [PSCustomObject]@{Result='PASS';Schema='4.0';ExcelVersion=$excelV4.Version;Tables=$tableCountV4;Jobs=2;Opening=1;Pending=1;Payments=2;Batches=2;Allocations=1;CarryCycles=2;Artifacts=$artifactFolder} | ConvertTo-Json -Compress
+  [PSCustomObject]@{Result='PASS';Schema=$expectedV4.schemaVersion;ExcelVersion=$excelV4.Version;Tables=$tableCountV4;Jobs=2;Opening=1;Pending=1;Payments=2;Batches=2;Allocations=1;CarryCycles=2;Artifacts=$artifactFolder} | ConvertTo-Json -Compress
 } finally {
   if ($null -ne $bookV4) { $bookV4.Close($false) }
   if ($null -ne $excelV4) { $excelV4.Quit(); [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($excelV4) }

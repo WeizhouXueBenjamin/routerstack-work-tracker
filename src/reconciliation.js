@@ -1,7 +1,8 @@
 (function (root) {
   'use strict';
   const C=typeof module==='object' && module.exports?require('./core.js'):root.TrackerCore;
-  const SCHEMA_VERSION='4.0',CALCULATION_VERSION='3.0';
+  const SCHEMA_VERSION='4.1',CALCULATION_VERSION='3.0';
+  const REMINDER_KINDS=Object.freeze(['missing_invoice','missing_app','difference']);
   const uuid=()=>root.crypto.randomUUID();
   const clone=value=>JSON.parse(JSON.stringify(value));
   const now=()=>new Date().toISOString();
@@ -26,7 +27,20 @@
     entrySettings:{sheet:'Config',fields:{id:'key',defaultRate:'decimal?'}},
     ratePresets:{sheet:'Config',fields:{id:'id',name:'text',rate:'decimal'}}
   };
-  const TABLES=Object.freeze(Object.fromEntries(Object.entries(definitions).map(([key,value])=>[key,Object.freeze({...value,fields:Object.freeze(value.fields)})])));
+  const freezeTables=data=>Object.freeze(Object.fromEntries(Object.entries(data).map(([key,value])=>[key,Object.freeze({...value,fields:Object.freeze({...value.fields})})])));
+  const TABLES_V4=freezeTables(definitions);
+  definitions.records.fields.reminderKinds='text';
+  definitions.issues.fields.amountCents='centsSigned?';
+  const TABLES=freezeTables(definitions);
+  const tablesFor=bundle=>bundle.schemaVersion==='4.0'?TABLES_V4:TABLES;
+  function reminderScope(record){
+    if(!Object.hasOwn(record,'reminderKinds'))return null;
+    return record.reminderKinds===''?[]:record.reminderKinds.split(',');
+  }
+  function encodeReminderScope(kinds){
+    if(!Array.isArray(kinds) || new Set(kinds).size!==kinds.length || kinds.some(kind=>!REMINDER_KINDS.includes(kind)))fail('提醒范围含未知或重复类别');
+    return REMINDER_KINDS.filter(kind=>kinds.includes(kind)).join(',');
+  }
   const auditFields=Object.freeze({id:'id',sequence:'integer',originFileId:'ref',originSequence:'integer',type:'text',at:'time',reason:'text',evidenceId:'ref?'});
   const changeFields=Object.freeze({id:'id',eventId:'ref',ordinal:'integer',table:'text',recordId:'text',field:'text',oldType:'text',oldValue:'text',newType:'text',newValue:'text'});
   const numericFields=['lunch','rate','app','extra'];
@@ -60,6 +74,21 @@
     if(!record || !['Job','Historical'].includes(record.state))return null;
     return C.calculate(rawRecord(record),rulesFor(bundle,record),record.calculationVersion);
   }
+  function detectedReminders(bundle,record){
+    if(!['Job','Historical'].includes(record.state))return [];
+    const found=[],out=calculate(bundle,record);
+    if(!record.invoice)found.push('missing_invoice');
+    if(blank(record.app))found.push('missing_app');
+    if(out?.diff!=null && Math.abs(out.diff)>rulesFor(bundle,record).tolerance)found.push('difference');
+    return found;
+  }
+  function automaticReminders(bundle,record){
+    const detected=detectedReminders(bundle,record);
+    if(record.state==='Job')return detected;
+    const scope=reminderScope(record);
+    // Missing legacy scope requires an explicit upgrade decision, never an implicit all/none.
+    return scope===null?[]:detected.filter(kind=>scope.includes(kind));
+  }
   const currentRecords=bundle=>bundle.tables.records.filter(record=>record.state==='Job');
   function viewRecords(bundle) {
     const records=currentRecords(bundle).map(record=>({...rawRecord(record),uid:record.id}));
@@ -89,6 +118,7 @@
     }
     const invoices=new Map();
     for(const record of bundle.tables.records) {
+      if(bundle.schemaVersion==='4.1' && encodeReminderScope(reminderScope(record))!==record.reminderKinds)fail('Record: 提醒范围编码无效');
       reference('cycles',record.originCycleId,'Record '+record.id,true);
       if(!['Job','Pending','Historical','Opening'].includes(record.state))fail('Record: 未知状态');
       if(record.invoice) {
@@ -181,13 +211,13 @@
   const canonical=value=>value===null || typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?'['+value.map(canonical).join(',')+']':'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonical(value[key])).join(',')+'}';
   const normalizedTables=tables=>Object.fromEntries(Object.entries(tables).map(([key,rows])=>[key,[...rows].sort((a,b)=>a.id.localeCompare(b.id))]));
   function validate(bundle,{audit=true}={}) {
-    if(!bundle || Object.keys(bundle).sort().join('|')!==['schemaVersion','calculationVersion','cycleId','fileId','fileVersionId','parentFileVersionId','sourceName','tables','audit','changes'].sort().join('|') || bundle.schemaVersion!==SCHEMA_VERSION || bundle.calculationVersion!==CALCULATION_VERSION)fail('Workbook: 不是完整的 schema 4.0 数据包');
+    if(!bundle || Object.keys(bundle).sort().join('|')!==['schemaVersion','calculationVersion','cycleId','fileId','fileVersionId','parentFileVersionId','sourceName','tables','audit','changes'].sort().join('|') || !['4.0',SCHEMA_VERSION].includes(bundle.schemaVersion) || bundle.calculationVersion!==CALCULATION_VERSION)fail('Workbook: 不是完整的受支持数据包');
     for(const key of ['cycleId','fileId'])validateScalar(bundle[key],'id','Workbook / '+key);
     validateScalar(bundle.fileVersionId,'ref?','Workbook / fileVersionId');
     validateScalar(bundle.parentFileVersionId,'ref?','Workbook / parentFileVersionId');validateScalar(bundle.sourceName,'text','Workbook / sourceName');
     if(Object.keys(bundle.tables).sort().join('|')!==Object.keys(TABLES).sort().join('|'))fail('Workbook: 数据表缺失或存在不支持的表');
     const ids=new Set();
-    for(const [name,{fields}] of Object.entries(TABLES))validateRows(bundle.tables[name],fields,name,ids);
+    for(const [name,{fields}] of Object.entries(tablesFor(bundle)))validateRows(bundle.tables[name],fields,name,ids);
     validateRows(bundle.audit,auditFields,'Audit',ids);validateRows(bundle.changes,changeFields,'Changes',ids);
     validateBusiness(bundle);
     if(audit && canonical(normalizedTables(replay(bundle)))!==canonical(normalizedTables(bundle.tables)))fail('History: 当前对账数据与审计回放不一致，可能被直接修改');
@@ -200,7 +230,7 @@
       for(const id of new Set([...oldRows.keys(),...newRows.keys()])) {
         const old=oldRows.get(id),next=newRows.get(id);
         // Delete the identity last so the old values can still be checked by replay.
-        const fields=Object.keys(TABLES[name].fields).sort((a,b)=>next?Number(b==='id')-Number(a==='id'):Number(a==='id')-Number(b==='id'));
+        const fields=Object.keys(tablesFor(after)[name].fields).sort((a,b)=>next?Number(b==='id')-Number(a==='id'):Number(a==='id')-Number(b==='id'));
         for(const field of fields) {
           const was=encode(old?.[field],!!old && Object.hasOwn(old,field)),is=encode(next?.[field],!!next && Object.hasOwn(next,field));
           if(was.type===is.type && was.value===is.value)continue;
@@ -215,17 +245,32 @@
     const context={reason:'',evidenceId:'',at:now(),...options};
     validate(bundle);const next=clone(bundle);mutate(next,context.at,context);refreshIssues(next,context.at);validateBusiness(next);appendAudit(bundle,next,{type,...context});return validate(next);
   }
-  function create({name='新工作周期',start='',end='',at=now(),rules={...C.DEFAULT_CONFIG}}={}) {
-    const bundle={schemaVersion:SCHEMA_VERSION,calculationVersion:CALCULATION_VERSION,cycleId:uuid(),fileId:uuid(),fileVersionId:'',parentFileVersionId:'',sourceName:'',tables:Object.fromEntries(Object.keys(TABLES).map(key=>[key,[]])),audit:[],changes:[]};
+  function create({name='新工作周期',start='',end='',at=now(),rules={...C.DEFAULT_CONFIG},schemaVersion=SCHEMA_VERSION}={}) {
+    const bundle={schemaVersion,calculationVersion:CALCULATION_VERSION,cycleId:uuid(),fileId:uuid(),fileVersionId:'',parentFileVersionId:'',sourceName:'',tables:Object.fromEntries(Object.keys(TABLES).map(key=>[key,[]])),audit:[],changes:[]};
     const before=clone(bundle);
     bundle.tables.cycles.push({id:bundle.cycleId,name,start,end,createdAt:at,parentId:'',sourceFileId:''});
     bundle.tables.rules.push({id:'current',...rules});bundle.tables.entrySettings.push({id:'current',defaultRate:''});
     appendAudit(before,bundle,{type:'CreateCycle',at,reason:'创建工作周期'});return validate(bundle);
   }
+  const schemaFields=(bundle,table)=>bundle.schemaVersion==='4.1'?(table==='records'?{reminderKinds:''}:{amountCents:''}):{};
+  function upgradeV4(bundle,{legacyScopes,at=now()}={}){
+    validate(bundle);if(bundle.schemaVersion!=='4.0')fail('只升级 schema 4.0 文件');
+    const next=clone(bundle);next.schemaVersion=SCHEMA_VERSION;
+    for(const record of next.tables.records){
+      if(record.state==='Historical' && !Object.hasOwn(legacyScopes || {},record.id))fail('请明确确认每个旧历史来源的初始提醒范围');
+      record.reminderKinds=record.state==='Historical'?encodeReminderScope(legacyScopes[record.id]):'';
+    }
+    for(const issue of next.tables.issues)issue.amountCents='';
+    appendAudit(bundle,next,{type:'UpgradeSchema41',at,reason:'用户明确确认旧历史提醒范围；参考金额未知，旧确认金额及所有原数据保留'});
+    return validate(next);
+  }
   function normalizeInput(input) {
     const data={date:'',invoice:'',start:'',end:'',lunch:'',rate:'',app:'',extra:'',note:'',site:'',...input};
     for(const field of numericFields)data[field]=blank(data[field])?'':Number(data[field]);
     return Object.fromEntries(['date','invoice','start','end','lunch','rate','app','extra','note','site'].map(field=>[field,data[field]]));
+  }
+  function setDefaultRate(bundle,value){
+    return transact(bundle,'SetDefaultRate',next=>{next.tables.entrySettings[0].defaultRate=blank(value)?'':Number(value)},{reason:'用户配置连续录入默认费率；不修改已有工作'});
   }
   function addObservation(bundle,record,previous,{at,observedAt=at,source='RouterStack App',note='',imported=false}) {
     if(previous===record.app)return;
@@ -235,7 +280,8 @@
   function syncAppIssue(bundle,record,at,reopen=false) {
     const out=calculate(bundle,record),open=out?.diff!=null && Math.abs(out.diff)>rulesFor(bundle,record).tolerance;
     let issue=bundle.tables.issues.find(row=>row.kind==='App' && row.recordId===record.id);
-    if(!issue && open){issue={id:uuid(),kind:'App',code:'AppDifference',recordId:record.id,batchId:'',status:'Open',createdAt:at,modifiedAt:at,reason:'',evidenceId:''};bundle.tables.issues.push(issue)}
+    // Keep legacy issue history compatible; 4.1 reminders themselves are purely derived.
+    if(!issue && open && bundle.schemaVersion==='4.0'){issue={id:uuid(),kind:'App',code:'AppDifference',recordId:record.id,batchId:'',status:'Open',createdAt:at,modifiedAt:at,reason:'',evidenceId:'',...schemaFields(bundle,'issues')};bundle.tables.issues.push(issue)}
     if(issue && (issue.status!=='Closed' || reopen)){const status=!out || blank(record.app)?'Open':open?'Open':'Resolved';if(issue.status!==status){issue.status=status;issue.modifiedAt=at}}
   }
   function reviewRelatedBatches(bundle,recordIds,at) {
@@ -244,7 +290,7 @@
   }
   function addRecord(bundle,input,{pending=false,at=now(),imported=false,observedAt,source,note=''}={}) {
     return transact(bundle,pending?'CreatePending':'CreateWork',(next)=>{
-      const record={id:uuid(),originCycleId:next.cycleId,originRecordId:'',sourceFileId:next.fileId,createdAt:at,modifiedAt:at,state:pending?'Pending':'Job',...normalizeInput(input),openingCents:'',calculationVersion:CALCULATION_VERSION,...config(next)};
+      const record={id:uuid(),originCycleId:next.cycleId,originRecordId:'',sourceFileId:next.fileId,createdAt:at,modifiedAt:at,state:pending?'Pending':'Job',...normalizeInput(input),openingCents:'',calculationVersion:CALCULATION_VERSION,...config(next),...schemaFields(next,'records')};
       record.originRecordId=record.id;next.tables.records.push(record);
       addObservation(next,record,'',{at,observedAt:observedAt ?? (imported?'':at),source:source || (imported?'导入文件中的 App 值':'RouterStack App'),note,imported});syncAppIssue(next,record,at);
     },{at});
@@ -292,7 +338,7 @@
       } else if(change.kind==='NewWork')next=addRecord(next,change.after,{at,imported:true});
       else fail('导入: 未知变更类型');
     }
-    if(changes.length)next=transact(next,'AcceptSourceFile',draft=>{draft.tables.origins.push({id:uuid(),fileId:bundle.fileId,fileVersionId:bundle.fileVersionId,name:sourceName,sha256:sourceHash,importedAt:at,schemaVersion:SCHEMA_VERSION})},{at,reason:'用户确认导入来源 '+source});
+    if(changes.length)next=transact(next,'AcceptSourceFile',draft=>{draft.tables.origins.push({id:uuid(),fileId:bundle.fileId,fileVersionId:bundle.fileVersionId,name:sourceName,sha256:sourceHash,importedAt:at,schemaVersion:bundle.schemaVersion})},{at,reason:'用户确认导入来源 '+source});
     return validate(next);
   }
   function migrate(legacy,{sourceName='',sourceHash='',at=now(),name=sourceName || '迁移周期'}={}) {
@@ -304,7 +350,7 @@
       for(const raw of legacy.records) {
         const opening=raw.kind==='Carryover';
         const record={id:uuid(),originCycleId:opening?'':next.cycleId,originRecordId:'',sourceFileId:next.fileId,createdAt:at,modifiedAt:at,state:opening?'Opening':'Job',...normalizeInput(raw),openingCents:opening?cents(raw.balance,{positive:true}):'',calculationVersion:opening?'':CALCULATION_VERSION,...(opening?Object.fromEntries(Object.keys(C.DEFAULT_CONFIG).map(key=>[key,''])):rules)};
-        next.tables.records.push(record);
+        Object.assign(record,schemaFields(next,'records'));next.tables.records.push(record);
         if(!opening){addObservation(next,record,'',{at,observedAt:'',source:'导入 '+sourceName,imported:true});syncAppIssue(next,record,at)}
       }
     },{at,reason:'显式升级旧格式；缺失历史不补造'});
@@ -318,7 +364,8 @@
     // A verified aggregate settlement resolves this balance source without asserting Invoice Paid.
     if(bundle.tables.scope.some(row=>row.active && row.kind==='Balance' && row.recordId===recordId && row.confirmationId===(carry?.id || '') && (()=>{const b=get(bundle,'batches',row.batchId);return finalBatch(b) && b.scopeConfirmed && b.basisConfirmed && b.actualConfirmed})()))return 0;
     if(carry)return carry.cents-(paid(bundle,recordId)-carry.paidAtConfirmationCents);
-    return record.state==='Opening'?record.openingCents-paid(bundle,recordId):null;
+    const inactiveOpening=bundle.schemaVersion==='4.1' && bundle.tables.confirmations.some(row=>row.recordId===recordId && row.kind==='CarryBalance' && !row.active);
+    return record.state==='Opening' && !inactiveOpening?record.openingCents-paid(bundle,recordId):null;
   }
   const confirmedCarryTotal=bundle=>sumCents(bundle.tables.records,row=>Math.max(0,carryRemaining(bundle,row.id) ?? 0));
   function invoiceSummary(bundle,recordId) {
@@ -341,7 +388,7 @@
   }
   function upsertIssue(bundle,{kind,code,recordId='',batchId='',open,reason='',evidenceId=''},at) {
     let issue=bundle.tables.issues.find(row=>row.kind===kind && row.code===code && row.recordId===recordId && row.batchId===batchId);
-    if(!issue && open){issue={id:uuid(),kind,code,recordId,batchId,status:'Open',createdAt:at,modifiedAt:at,reason,evidenceId};bundle.tables.issues.push(issue)}
+    if(!issue && open){issue={id:uuid(),kind,code,recordId,batchId,status:'Open',createdAt:at,modifiedAt:at,reason,evidenceId,...schemaFields(bundle,'issues')};bundle.tables.issues.push(issue)}
     if(issue && issue.status!=='Closed' && issue.status!==(open?'Open':'Resolved'))Object.assign(issue,{status:open?'Open':'Resolved',modifiedAt:at});
     return issue;
   }
@@ -474,11 +521,12 @@
   function reopenBatch(bundle,batchId,input) {
     return financial(bundle,'ReopenBatch',input,(next,at,evidence,reason)=>{const batch=get(next,'batches',batchId);if(!finalBatch(batch))fail('批次尚未关闭');Object.assign(batch,{status:'ReviewRequired',scopeConfirmed:false,basisConfirmed:false,actualConfirmed:false,closedAt:'',modifiedAt:at,reason,evidenceId:evidence.id})});
   }
-  function addIssue(bundle,{recordId='',batchId='',code='ManualReview',...input}) {
+  function addIssue(bundle,{recordId='',batchId='',code='ManualReview',amount='',...input}) {
     return financial(bundle,'OpenIndependentIssue',input,(next,at,evidence,reason)=>{
       if(!recordId && !batchId)fail('请选择问题来源');if(recordId)get(next,'records',recordId);if(batchId)get(next,'batches',batchId);
       if(next.tables.issues.some(row=>row.recordId===recordId && row.batchId===batchId && row.code===code && row.kind==='Invoice' && row.status==='Open'))fail('此来源已有相同未解决问题');
-      next.tables.issues.push({id:uuid(),kind:'Invoice',code,recordId,batchId,status:'Open',createdAt:at,modifiedAt:at,reason,evidenceId:evidence.id});
+      if(next.schemaVersion==='4.0' && !blank(amount))fail('参考金额需要明确升级到 4.1');
+      next.tables.issues.push({id:uuid(),kind:'Invoice',code,recordId,batchId,status:'Open',createdAt:at,modifiedAt:at,reason,evidenceId:evidence.id,...(next.schemaVersion==='4.1'?{amountCents:blank(amount)?'':cents(amount)}:{})});
     });
   }
   function setIssueStatus(bundle,issueId,status,input) {
@@ -488,6 +536,12 @@
       if(issue.status===status)fail('问题状态没有变化');Object.assign(issue,{status,modifiedAt:at,reason,evidenceId:evidence.id});
     });
   }
+  function reviseIssue(bundle,issueId,{amount='',...input}){
+    return financial(bundle,'ReviseManualIssue',input,(next,at,evidence,reason)=>{
+      const issue=get(next,'issues',issueId);if(issue.kind!=='Invoice' || next.schemaVersion!=='4.1')fail('仅修订 4.1 人工事项的参考金额与说明');
+      Object.assign(issue,{amountCents:blank(amount)?'':cents(amount),reason,evidenceId:evidence.id,modifiedAt:at});
+    });
+  }
   function updateEvidence(bundle,evidenceId,input) {
     if(!String(input.reason || input.summary || '').trim())fail('请填写证据修订原因或摘要');
     return transact(bundle,'ReviseEvidence',next=>{const row=get(next,'evidence',evidenceId);for(const key of ['reason','summary','source','reference','confirmedAt'])if(input[key]!==undefined)row[key]=input[key]},{at:input.at || now(),reason:input.reason || input.summary,evidenceId});
@@ -495,17 +549,42 @@
   function reviseObservation(bundle,observationId,input) {
     return transact(bundle,'ReviseAppObservation',next=>{const row=get(next,'observations',observationId);for(const key of ['observedAt','source','note'])if(input[key]!==undefined)row[key]=input[key]},{at:input.at || now(),reason:'用户修订 App 观察资料；金额与系统记录时间保持原始值'});
   }
-  function buildCarryForwardPlan(bundle) {
+  function carrySelection(bundle,selection={}){
+    const scopes={},scopeCandidates=[],manualCandidates=bundle.tables.issues.filter(row=>row.kind==='Invoice' && row.status==='Open'),balanceCandidates=bundle.tables.records.filter(row=>(carryRemaining(bundle,row.id) ?? 0)>0);
+    const overrides=selection.reminderScopes || {};
+    for(const id of Object.keys(overrides))if(!bundle.tables.records.some(row=>row.id===id && ['Job','Historical'].includes(row.state)))fail('结转提醒范围引用了未知来源');
+    for(const record of bundle.tables.records.filter(row=>['Job','Historical'].includes(row.state))){
+      const detected=detectedReminders(bundle,record),initial=record.state==='Historical'?reminderScope(record):(detected.length?[...REMINDER_KINDS]:[]);
+      if(initial===null)fail('旧历史来源必须先明确升级并确认提醒范围');
+      scopes[record.id]=Object.hasOwn(overrides,record.id)?encodeReminderScope(overrides[record.id]):encodeReminderScope(initial);
+      scopeCandidates.push({recordId:record.id,allowed:initial,detected});
+    }
+    const choose=(ids,candidates,label)=>{
+      if(ids===undefined)return new Set(candidates);
+      if(!Array.isArray(ids) || new Set(ids).size!==ids.length || ids.some(id=>!candidates.includes(id)))fail(label+'选择含未知或重复来源');
+      return new Set(ids);
+    };
+    return {scopes,scopeCandidates,manualCandidates,balanceCandidates,issues:choose(selection.issueIds,manualCandidates.map(row=>row.id),'人工事项'),balances:choose(selection.balanceRecordIds,balanceCandidates.map(row=>row.id),'确认余额'),overrides};
+  }
+  function buildCarryForwardPlan(bundle,{selection}={}) {
     validate(bundle);
+    const choices=bundle.schemaVersion==='4.1'?carrySelection(bundle,selection):null;
     const reasons=new Map(),addReason=(table,id,reason)=>{const key=table+':'+id;if(!reasons.has(key))reasons.set(key,[]);if(!reasons.get(key).includes(reason))reasons.get(key).push(reason)};
     for(const record of bundle.tables.records){
       if(record.state==='Pending')addReason('records',record.id,'待补工作');
-      if(record.state!=='Opening' && !record.invoice)addReason('records',record.id,'Invoice 待补');
-      if(record.state!=='Opening' && blank(record.app))addReason('records',record.id,'App 待填');
-      if(['Job','Historical'].includes(record.state) && !coveredAtBatchLevel(bundle,record.id))addReason('records',record.id,'工作结算范围尚未核对完成');
-      if((carryRemaining(bundle,record.id) ?? 0)!==0)addReason('records',record.id,'确认历史余额或超额异常');
+      if(choices){
+        const allowed=choices.scopes[record.id]?.split(',') || [],actual=detectedReminders(bundle,record);
+        for(const kind of actual.filter(kind=>allowed.includes(kind)))addReason('records',record.id,kind);
+        if(Object.hasOwn(choices.overrides,record.id) && allowed.some(Boolean))addReason('records',record.id,'用户明确调整历史跟进范围');
+        if(choices.balances.has(record.id) || (carryRemaining(bundle,record.id) ?? 0)<0)addReason('records',record.id,'人工确认余额／金额异常');
+      }else{
+        if(record.state!=='Opening' && !record.invoice)addReason('records',record.id,'Invoice 待补');
+        if(record.state!=='Opening' && blank(record.app))addReason('records',record.id,'App 待填');
+        if(['Job','Historical'].includes(record.state) && !coveredAtBatchLevel(bundle,record.id))addReason('records',record.id,'工作结算范围尚未核对完成');
+        if((carryRemaining(bundle,record.id) ?? 0)!==0)addReason('records',record.id,'确认历史余额或超额异常');
+      }
     }
-    for(const issue of bundle.tables.issues.filter(row=>row.status==='Open'))addReason('issues',issue.id,issue.kind+' / '+issue.code);
+    for(const issue of bundle.tables.issues.filter(row=>row.status==='Open' && (!choices || row.kind==='Invoice' && choices.issues.has(row.id) || !['Invoice','App'].includes(row.kind))))addReason('issues',issue.id,issue.kind+' / '+issue.code);
     for(const batch of bundle.tables.batches.filter(row=>!finalBatch(row)))addReason('batches',batch.id,'批次尚未核对完成');
     for(const row of unallocatedPayments(bundle))addReason('payments',row.payment.id,'未分配／范围待核实到账');
     const keep=Object.fromEntries(Object.keys(TABLES).map(table=>[table,new Set()]));
@@ -518,7 +597,8 @@
       changed=false;
       for(const [table,rows] of Object.entries(bundle.tables))for(const row of rows){
         // Keep both directions of a retained financial relationship, including reversed/history rows.
-        const related=['scope','allocations','confirmations','issues','observations'].includes(table) && (row.recordId && keep.records.has(row.recordId) || row.batchId && keep.batches.has(row.batchId)) || table==='payments' && row.batchId && keep.batches.has(row.batchId) || table==='balanceReferences' && keep.confirmations.has(row.confirmationId);
+        const excludedIssue=choices && table==='issues' && row.kind==='Invoice' && row.status==='Open' && !choices.issues.has(row.id);
+        const related=!excludedIssue && (['scope','allocations','confirmations','issues','observations'].includes(table) && (row.recordId && keep.records.has(row.recordId) || row.batchId && keep.batches.has(row.batchId)) || table==='payments' && row.batchId && keep.batches.has(row.batchId) || table==='balanceReferences' && keep.confirmations.has(row.confirmationId));
         if(related)changed=include(table,row.id) || changed;
         if(keep[table].has(row.id))for(const value of Object.values(row))if(typeof value==='string' && byId.has(value))changed=include(byId.get(value),value) || changed;
       }
@@ -531,30 +611,42 @@
       for(const event of bundle.audit)if(events.has(event.id) && event.evidenceId)changed=include('evidence',event.evidenceId) || changed;
     }
     const entries=[...reasons].map(([key,why])=>{const split=key.indexOf(':'),table=key.slice(0,split),id=key.slice(split+1),row=get(bundle,table,id);return {table,id,label:row.invoice || row.name || (table==='payments'?row.date+' · '+(row.cents/100).toFixed(2):row.code),reasons:why}});
-    return {entries,keep:Object.fromEntries(Object.entries(keep).map(([table,ids])=>[table,[...ids]])),recordCount:keep.records.size,paymentCount:keep.payments.size,batchCount:keep.batches.size,unresolvedCount:entries.length,confirmedCarryCents:confirmedCarryTotal(bundle),excludedRecords:bundle.tables.records.length-keep.records.size};
+    return {entries,keep:Object.fromEntries(Object.entries(keep).map(([table,ids])=>[table,[...ids]])),recordCount:keep.records.size,paymentCount:keep.payments.size,batchCount:keep.batches.size,unresolvedCount:entries.length,confirmedCarryCents:choices?sumCents(bundle.tables.records.filter(row=>choices.balances.has(row.id)),row=>carryRemaining(bundle,row.id)):confirmedCarryTotal(bundle),excludedRecords:bundle.tables.records.length-keep.records.size,...(choices?{scopes:choices.scopes,scopeCandidates:choices.scopeCandidates,manualCandidates:choices.manualCandidates,balanceCandidates:choices.balanceCandidates,excludedBalanceIds:choices.balanceCandidates.filter(row=>!choices.balances.has(row.id)).map(row=>row.id)}:{})};
   }
   function carryForward(bundle,options) {
-    const plan=buildCarryForwardPlan(bundle),selected=clone(bundle),keep=Object.fromEntries(Object.entries(plan.keep).map(([table,ids])=>[table,new Set(ids)]));
+    const plan=buildCarryForwardPlan(bundle,{selection:options?.selection}),selected=clone(bundle),keep=Object.fromEntries(Object.entries(plan.keep).map(([table,ids])=>[table,new Set(ids)]));
     for(const table of Object.keys(TABLES))selected.tables[table]=selected.tables[table].filter(row=>keep[table].has(row.id));
     selected.changes=selected.changes.filter(row=>keep[row.table].has(row.recordId));
     const eventIds=new Set(selected.changes.map(row=>row.eventId));selected.audit=selected.audit.filter(row=>eventIds.has(row.id));
     for(const [i,event] of selected.audit.entries()){event.sequence=i+1;let ordinal=0;for(const change of selected.changes.filter(row=>row.eventId===event.id).sort((a,b)=>a.ordinal-b.ordinal))change.ordinal=++ordinal}
     validate(selected);
-    const next=createCycleDraft(selected,options);next.audit.at(-1).type='CarryForwardUnresolved';next.audit.at(-1).reason='新周期自动保留全部未解决来源与必要历史；原周期文件保持不变';
+    const next=createCycleDraft(selected,{...options,reminderScopes:plan.scopes,excludedBalanceIds:plan.excludedBalanceIds});next.audit.at(-1).type='CarryForwardUnresolved';next.audit.at(-1).reason='按明确范围创建新周期；排除仅影响新周期跟进，不表示解决，原周期文件保持不变';
     return validate(next);
   }
   // A lossless data draft. A3 selects the unresolved graph before exposing cycle creation.
-  function createCycleDraft(bundle,{name,start='',end='',sourceHash='',at=now()}={}) {
+  function createCycleDraft(bundle,{name,start='',end='',sourceHash='',at=now(),reminderScopes,excludedBalanceIds=[]}={}) {
     if(!bundle.fileVersionId)fail('请先保存并确认保留当前周期文件');
     if(typeof name!=='string' || !name.trim())fail('请填写新周期名称');
     return transact(bundle,'CreateCycleDraft',next=>{
       const parent=next.cycleId,sourceFile=next.fileId;
-      next.tables.origins.push({id:uuid(),fileId:sourceFile,fileVersionId:next.fileVersionId,name:next.sourceName,sha256:sourceHash,importedAt:at,schemaVersion:SCHEMA_VERSION});
+      next.tables.origins.push({id:uuid(),fileId:sourceFile,fileVersionId:next.fileVersionId,name:next.sourceName,sha256:sourceHash,importedAt:at,schemaVersion:bundle.schemaVersion});
       next.cycleId=uuid();next.fileId=uuid();next.parentFileVersionId=next.fileVersionId;next.fileVersionId='';next.sourceName='';
       next.tables.cycles.push({id:next.cycleId,name:name.trim(),start,end,createdAt:at,parentId:parent,sourceFileId:sourceFile});
-      for(const record of next.tables.records)if(record.state==='Job'){Object.assign(record,config(next));record.state='Historical';record.modifiedAt=at}
+      for(const record of next.tables.records){
+        if(record.state==='Job'){Object.assign(record,config(next));record.state='Historical';record.modifiedAt=at}
+        if(reminderScopes && Object.hasOwn(reminderScopes,record.id))record.reminderKinds=reminderScopes[record.id];
+        if(excludedBalanceIds.includes(record.id)){
+          const active=confirmation(next,record.id,'CarryBalance');
+          if(active)active.active=false;
+          else if(record.state==='Opening'){
+            const reason='新周期排除余额跟进；保留原文件确认期初金额快照，不表示已解决或已付款',evidence=proof(next,{reason,source:bundle.sourceName},at);
+            const row={id:uuid(),recordId:record.id,kind:'CarryBalance',cents:record.openingCents,paidAtConfirmationCents:paid(next,record.id),active:false,createdAt:at,reason,evidenceId:evidence.id};next.tables.confirmations.push(row);
+            for(const allocation of next.tables.allocations.filter(row=>row.recordId===record.id && row.status==='Active'))next.tables.balanceReferences.push({id:uuid(),confirmationId:row.id,allocationId:allocation.id,cents:allocation.cents});
+          }
+        }
+      }
     },{at,reason:'创建新周期数据草稿；未裁剪历史，不作为完整结转验收'});
   }
-  const api=Object.freeze({SCHEMA_VERSION,CALCULATION_VERSION,TABLES,auditFields,changeFields,uuid,clone,now,cents,canonical,config,rulesFor,rawRecord,calculate,currentRecords,viewRecords,paid,paymentAllocated,get,replay,validate,transact,create,addRecord,updateRecord,removeRecord,acceptExternalChanges,migrate,createCycleDraft,buildCarryForwardPlan,carryForward,carryRemaining,confirmedCarryTotal,invoiceSummary,batchSummary,coveredAtBatchLevel,unallocatedPayments,addPayment,correctPayment,addBatch,attachPayment,detachPayment,allocatePayment,reverseAllocation,confirmAmount,setBatchScope,clearBatchScope,closeEmptyBatch,closeBatch,reopenBatch,addIssue,setIssueStatus,updateEvidence,reviseObservation});
+  const api=Object.freeze({SCHEMA_VERSION,CALCULATION_VERSION,TABLES,TABLES_V4,tablesFor,REMINDER_KINDS,reminderScope,encodeReminderScope,automaticReminders,upgradeV4,auditFields,changeFields,uuid,clone,now,cents,canonical,config,rulesFor,rawRecord,calculate,detectedReminders,currentRecords,viewRecords,paid,paymentAllocated,get,replay,validate,transact,create,addRecord,updateRecord,removeRecord,setDefaultRate,acceptExternalChanges,migrate,createCycleDraft,buildCarryForwardPlan,carryForward,carryRemaining,confirmedCarryTotal,invoiceSummary,batchSummary,coveredAtBatchLevel,unallocatedPayments,addPayment,correctPayment,addBatch,attachPayment,detachPayment,allocatePayment,reverseAllocation,confirmAmount,setBatchScope,clearBatchScope,closeEmptyBatch,closeBatch,reopenBatch,addIssue,setIssueStatus,reviseIssue,updateEvidence,reviseObservation});
   if(typeof module==='object' && module.exports)module.exports=api;else root.TrackerReconciliation=api;
 })(globalThis);

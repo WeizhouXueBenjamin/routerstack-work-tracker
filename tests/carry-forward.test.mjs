@@ -8,8 +8,8 @@ const last=(b,t)=>b.tables[t].at(-1).id;
 function saved(b){b=R.clone(b);b.fileVersionId=R.uuid();b.sourceName='synthetic.xlsx';return b}
 function settled(b,recordId){b=R.addBatch(b,{name:'Synthetic verified batch'});const batch=last(b,'batches');b=R.addPayment(b,{date:'2026-01-12',amount:180,duplicateConfirmed:true});b=R.attachPayment(b,last(b,'payments'),batch,proof);b=R.setBatchScope(b,batch,[{recordId,kind:'Theory'}],{...proof,scopeConfirmed:true,basisConfirmed:true,actualConfirmed:true});return R.closeBatch(b,batch,proof)}
 
-test('all unresolved sources carry automatically, fully resolved unrelated work is pruned',()=>{
-  let b=R.addRecord(R.create(),job('INV-9001'));const done=last(b,'records');b=settled(b,done);
+test('schema 4.0 compatibility retains the original unresolved graph',()=>{
+  let b=R.addRecord(R.create({schemaVersion:'4.0'}),job('INV-9001'));const done=last(b,'records');b=settled(b,done);
   b=R.addRecord(b,job('INV-9002'));const unpaid=last(b,'records');
   b=R.addRecord(b,{invoice:'INV-9003',note:'Synthetic unknown hours'},{pending:true});const pending=last(b,'records');
   b=R.addPayment(b,{date:'2026-01-15',amount:12});const bank=last(b,'payments');b=saved(b);
@@ -56,5 +56,5 @@ test('current pending completion uses the confirmed current rules and freezes th
   let b=R.addRecord(R.create(),{date:'2026-01-10',invoice:'INV-9050'},{pending:true});const id=last(b,'records'),before=R.config(b);
   b=R.acceptExternalChanges(b,[{kind:'Rules',before,after:{...before,ahEnd:7}}]);
   b=R.updateRecord(b,id,{start:'06:00',end:'07:00',rate:60,app:180},{promote:true});assert.equal(R.get(b,'records',id).ahEnd,7);assert.equal(R.calculate(b,R.get(b,'records',id)).total,180);
-  const next=R.carryForward(saved(b),{name:'Synthetic historical'});assert.equal(R.get(next,'records',id).ahEnd,7);assert.equal(R.calculate(next,R.get(next,'records',id)).total,180);
+  const next=R.carryForward(saved(b),{name:'Synthetic historical',selection:{reminderScopes:{[id]:R.REMINDER_KINDS}}});assert.equal(R.get(next,'records',id).ahEnd,7);assert.equal(R.calculate(next,R.get(next,'records',id)).total,180);
 });

@@ -10,7 +10,7 @@
     "test:excel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-excel.ps1",
     "test:excel:v4": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-excel-v4.ps1",
     "check": "npm run check:js && npm run template:check && npm test",
-    "check:js": "node --check src/core.js && node --check src/reconciliation.js && node --check src/reconciliation-ui.js && node --check src/workbook.js && node --check src/workbook-v4.js && node --check src/reports.js && node --check src/app.js && node --check src/template-data.js && node --check src/template-v4-data.js && node --check vendor/jszip.min.js",
+    "check:js": "node --check src/core.js && node --check src/reconciliation.js && node --check src/reconciliation-ui.js && node --check src/workbook.js && node --check src/workbook-v4.js && node --check src/reports.js && node --check src/recent-file.js && node --check src/review-ui.js && node --check src/app.js && node --check src/template-data.js && node --check src/template-v4-data.js && node --check vendor/jszip.min.js",
     "template:sync": "node scripts/embed-template.mjs",
     "template:check": "node scripts/embed-template.mjs --check"
   },

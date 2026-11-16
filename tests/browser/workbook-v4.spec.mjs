@@ -6,7 +6,7 @@ import {readFile} from 'node:fs/promises';
 test('v4 export refuses an oversized audit rather than producing a workbook its reader cannot reopen',async({page})=>{
   test.setTimeout(120000);
   const result=await page.evaluate(async()=>{
-    const R=TrackerReconciliation,records=Array.from({length:300},(_,i)=>({kind:'Job',date:'2026-01-10',invoice:'INV-'+(9000+i),start:'19:00',end:'20:00',rate:60,app:150,note:'Synthetic '+ 'x'.repeat(16000)})),b=R.migrate({version:'3.0',config:TrackerCore.DEFAULT_CONFIG,records});
+    const R=TrackerReconciliation,records=Array.from({length:300},(_,i)=>({kind:'Job',date:'2026-01-10',invoice:'INV-'+(9000+i),start:'19:00',end:'20:00',rate:60,app:150,note:'Synthetic '+ 'x'.repeat(32000)})),b=R.migrate({version:'3.0',config:TrackerCore.DEFAULT_CONFIG,records});
     const audit=b.audit.length,first=b.tables.records[0].note;let error='';try{await TrackerWorkbookV4.write(b)}catch(e){error=e.message}
     return {error,unchanged:audit===b.audit.length && first===b.tables.records[0].note,count:b.tables.records.length};
   });
@@ -112,7 +112,7 @@ test('main UI saves and reopens the complete v4 bundle with stable records',asyn
   await add(page,{start:'19:00',end:'20:00',app:'150'});
   const before=await page.evaluate(()=>({id:state.bundle.tables.records[0].id,tables:state.bundle.tables}));
   const bytes=await download(page);await open(page,bytes,'synthetic-v4.xlsx');
-  expect(await page.evaluate(()=>state.version)).toBe('4.0');
+  expect(await page.evaluate(()=>state.version)).toBe('4.1');
   expect(await page.evaluate(()=>state.bundle.tables)).toEqual(before.tables);
   expect(await page.evaluate(()=>state.bundle.tables.records[0].id)).toBe(before.id);
   await expect(page.locator('#kExpected')).toHaveText('$180.00');
@@ -134,10 +134,10 @@ for(const version of ['2.0','3.0'])test('main UI keeps '+version+' read-only unt
   const before=await page.evaluate(()=>JSON.stringify(state.records));
   await page.locator('#upgradeBtn').click();await page.locator('#reviewCancel').click();expect(await page.evaluate(()=>JSON.stringify(state.records))).toBe(before);
   await page.locator('#upgradeBtn').click();await page.locator('#reviewConfirm').click();
-  await expect(page.locator('#saveBtn')).toBeEnabled();expect(await page.evaluate(()=>state.version)).toBe('4.0');
+  await expect(page.locator('#saveBtn')).toBeEnabled();expect(await page.evaluate(()=>state.version)).toBe('4.1');
   expect(await page.evaluate(()=>state.bundle.tables.origins[0].sha256)).toMatch(/^[a-f0-9]{64}$/);
   expect(await page.evaluate(()=>state.bundle.tables.payments)).toEqual([]);await expect(page.locator('#kExpected')).toHaveText('$180.00');
-  const saved=await download(page);await open(page,saved);expect(await page.evaluate(()=>state.version)).toBe('4.0');
+  const saved=await download(page);await open(page,saved);expect(await page.evaluate(()=>state.version)).toBe('4.1');
 });
 
 test('main UI raw import preview preserves drafts on cancel and App history on acceptance',async({page})=>{
@@ -148,6 +148,6 @@ test('main UI raw import preview preserves drafts on cancel and App history on a
   expect(await page.evaluate(()=>state.records[0].app)).toBe(150);
   await open(page,edited,'synthetic-edited.xlsx');await page.locator('#reviewConfirm').click();
   expect(await page.evaluate(()=>state.records[0].app)).toBe(180);expect(await page.evaluate(()=>state.bundle.tables.observations.length)).toBe(2);
-  expect(await page.evaluate(()=>state.bundle.tables.issues[0].status)).toBe('Resolved');expect(await page.evaluate(()=>state.dirty)).toBe(true);
+  expect(await page.evaluate(()=>TrackerReconciliation.automaticReminders(state.bundle,state.bundle.tables.records[0]))).toEqual([]);expect(await page.evaluate(()=>state.bundle.tables.issues)).toEqual([]);expect(await page.evaluate(()=>state.dirty)).toBe(true);
   expect(await page.evaluate(()=>state.bundle.tables.payments)).toEqual([]);
 });

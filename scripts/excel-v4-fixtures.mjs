@@ -24,8 +24,11 @@ try {
       bundle=R.addBatch(bundle,{name:'Synthetic aggregate verified batch'});const aggregate=bundle.tables.batches.at(-1).id;
       bundle=R.addPayment(bundle,{date:'2026-01-13',amount:120});bundle=R.attachPayment(bundle,bundle.tables.payments.at(-1).id,aggregate,proof);
       bundle=R.setBatchScope(bundle,aggregate,[{recordId:bundle.tables.records[1].id,kind:'Theory'}],{...proof,scopeConfirmed:true,basisConfirmed:true,actualConfirmed:true});bundle=R.closeBatch(bundle,aggregate,proof);
+      bundle=R.setDefaultRate(bundle,62.5);
+      bundle=R.addIssue(bundle,{recordId:bundle.tables.records[0].id,code:'ReferenceUnknown',amount:'',reason:'Synthetic unknown reference'});
+      bundle=R.addIssue(bundle,{recordId:bundle.tables.records[0].id,code:'ReferenceZero',amount:0,reason:'Synthetic zero reference'});
       const blob=await TrackerWorkbookV4.write(bundle,{fileName:'v4-source.xlsx'}),bytes=[...new Uint8Array(await blob.arrayBuffer())];
-      return {bytes,tables:bundle.tables,targetId:bundle.tables.records[0].id,secondId:bundle.tables.records[1].id,note:bundle.tables.records[0].note};
+      return {bytes,schemaVersion:bundle.schemaVersion,tables:bundle.tables,targetId:bundle.tables.records[0].id,secondId:bundle.tables.records[1].id,note:bundle.tables.records[0].note};
     });
     await writeFile(file('v4-source.xlsx'),Buffer.from(fixture.bytes));delete fixture.bytes;
     await writeFile(file('v4-expected.json'),JSON.stringify(fixture,null,2));
@@ -56,11 +59,11 @@ try {
     await writeFile(file('v4-tool-resaved.xlsx'),Buffer.from(accepted.bytes));
     const verified=await page.evaluate(async bytes=>{const parsed=await TrackerWorkbookV4.read(new Uint8Array(bytes));return {tables:parsed.bundle.tables,changes:parsed.changes}},accepted.bytes);
     assert.deepEqual(verified.tables,accepted.bundle.tables);assert.deepEqual(verified.changes,[]);
-    const cycles=await page.evaluate(async bytes=>{
+    const cycles=await page.evaluate(async({bytes,targetId})=>{
       const R=TrackerReconciliation,W=TrackerWorkbookV4,original=(await W.read(new Uint8Array(bytes))).bundle,items=[];let b=original;
-      for(const name of ['v4-cycle-one.xlsx','v4-cycle-two.xlsx']){const next=R.carryForward(b,{name:'Synthetic '+name});const blob=await W.write(next,{fileName:name});b=(await W.read(await blob.arrayBuffer())).bundle;items.push({name,bytes:[...new Uint8Array(await blob.arrayBuffer())],tables:b.tables})}
+      for(const name of ['v4-cycle-one.xlsx','v4-cycle-two.xlsx']){const next=R.carryForward(b,{name:'Synthetic '+name,selection:{reminderScopes:{[targetId]:['missing_invoice','missing_app']}}});const blob=await W.write(next,{fileName:name});b=(await W.read(await blob.arrayBuffer())).bundle;items.push({name,bytes:[...new Uint8Array(await blob.arrayBuffer())],tables:b.tables})}
       return items;
-    },accepted.bytes);
+    },{bytes:accepted.bytes,targetId:expected.targetId});
     for(const item of cycles){await writeFile(file(item.name),Buffer.from(item.bytes));delete item.bytes}
     await writeFile(file('v4-cycles-expected.json'),JSON.stringify(cycles));
     console.log('Verified Excel financial tables, sorting, immutable payments, raw-input review and two standalone carry exports.');

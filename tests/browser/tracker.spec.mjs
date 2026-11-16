@@ -9,7 +9,7 @@ test.beforeEach(async({page})=>{
   page.on('pageerror',error=>seen.errors.push(error.message));
   page.on('request',request=>{if(/^https?:/.test(request.url()))seen.remote.push(request.url())});
   await page.addInitScript(()=>{window.showSaveFilePicker=undefined;window.showOpenFilePicker=undefined});
-  await page.goto(url);await expect(page.locator('#statusBar')).toContainText('4.0');
+  await page.goto(url);await expect(page.locator('#statusBar')).toContainText('4.1');
 });
 test.afterEach(async({page})=>{
   expect(observed.get(page).errors).toEqual([]);expect(observed.get(page).remote).toEqual([]);
@@ -141,7 +141,7 @@ test('legacy is read-only; upgrade cancellation and acceptance preserve raw inpu
   const before=await page.evaluate(()=>state.records.map(({uid,site,...record})=>({...record,rate:Number(record.rate)})));
   await page.locator('#upgradeBtn').click();await expect(page.locator('#reviewRows')).toContainText('$180.00');await page.locator('#reviewCancel').click();expect(await page.evaluate(()=>state.version)).toBe('2.0');
   await page.locator('#upgradeBtn').click();await page.locator('#reviewConfirm').click();expect(await page.evaluate(()=>state.records.map(({uid,site,...record})=>({...record,rate:Number(record.rate)})))).toEqual(before);await expect(page.locator('#kExpected')).toHaveText('$180.00');
-  const exported=await download(page);await open(page,exported);expect(await page.evaluate(()=>state.version)).toBe('4.0');
+  const exported=await download(page);await open(page,exported);expect(await page.evaluate(()=>state.version)).toBe('4.1');
 });
 test('Config changes require review; cancelling leaves records and draft intact',async({page})=>{
   await add(page,{start:'17:00',end:'19:00'});const bytes=await download(page);
