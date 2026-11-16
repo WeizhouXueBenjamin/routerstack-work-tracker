@@ -29,10 +29,10 @@ async function drop(page,open){
 try{
   let page=await launch();
   const fixture=await page.evaluate(async()=>{
-    const R=TrackerReconciliation,W=TrackerWorkbook;
+    const R=TrackerModel,W=TrackerWorkbook;
     const first=R.addRecord(R.create(),{date:'2026-01-10',invoice:'INV-9001',start:'19:00',end:'20:00',rate:60});
     const second=R.addRecord(first,{date:'2026-01-11',invoice:'INV-9002',start:'09:00',end:'10:00',rate:60});
-    return {first:[...new Uint8Array(await(await W.write(first)).arrayBuffer())],second:[...new Uint8Array(await(await W.write(second)).arrayBuffer())],ids:second.tables.records.map(row=>row.id)};
+    return {first:[...new Uint8Array(await(await W.write(first)).arrayBuffer())],second:[...new Uint8Array(await(await W.write(second)).arrayBuffer())],ids:second.records.map(row=>row.id)};
   });
   await writeFile(filename,Buffer.from(fixture.first));await drop(page,true);
   await page.waitForFunction(()=>document.getElementById('recentStatus').textContent.includes('XLSX'));
@@ -50,6 +50,6 @@ try{
   }
   assert.equal(await page.evaluate(()=>state.recent.handle.queryPermission({mode:'read'})),'granted');
   await page.locator('#recentBtn').click();await page.waitForFunction(()=>!state.busy);
-  assert.deepEqual(await page.evaluate(()=>state.bundle.tables.records.map(row=>row.id)),fixture.ids);
+  assert.deepEqual(await page.evaluate(()=>state.workbook.records.map(row=>row.id)),fixture.ids);
   console.log(JSON.stringify({result:'PASS',permissionAfterRestart:permission,actualDiskRereadJobs:2,storedKeys:['handle','name','writable'],artifacts:folder}));
 }finally{await context?.close()}

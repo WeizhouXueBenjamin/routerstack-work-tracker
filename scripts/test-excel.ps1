@@ -1,9 +1,12 @@
-$ErrorActionPreference = 'Stop'
-$taskRoot = Split-Path -Parent $PSScriptRoot
-$artifactFolder = Join-Path ([System.IO.Path]::GetTempPath()) ('routerstack-excel-' + [guid]::NewGuid().ToString('N'))
+﻿$ErrorActionPreference = 'Stop'
+$artifactFolder = Join-Path ([System.IO.Path]::GetTempPath()) ('routerstack-excel-v5-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $artifactFolder)
 $excelTest = $null
 $bookTest = $null
+function Run-Fixture([string]$mode) {
+  & node (Join-Path $PSScriptRoot 'excel-fixtures.mjs') $mode $artifactFolder
+  if ($LASTEXITCODE -ne 0) { throw "Schema 5 fixture stage failed: $mode" }
+}
 function Assert-Value($actual, $expected, [string]$label) {
   if ($null -eq $expected) {
     if ($null -ne $actual -and $actual -ne '') { throw "$label expected blank, received $actual" }
@@ -13,84 +16,84 @@ function Assert-Value($actual, $expected, [string]$label) {
     throw "$label expected $expected, received $actual"
   }
 }
-function Assert-Workbook($book, $expected) {
-  $log = $book.Worksheets.Item('Work Log')
-  $tool = $book.Worksheets.Item('Tool')
-  for ($i=0; $i -lt $expected.calculations.Count; $i++) {
-    $row = $i + 6
-    $calc = $expected.calculations[$i]
-    foreach ($pair in @(@('G','total'),@('I','diff'),@('P','raw'),@('Q','bill'),@('R','ah'),@('S','rawAH'))) {
-      Assert-Value $log.Range($pair[0]+$row).Value2 $calc.($pair[1]) ($pair[0]+$row)
-    }
-    if ($expected.records[$i].kind -eq 'Job') {
-      Assert-Value $log.Range('T'+$row).Value2 $calc.base ('T'+$row)
-      Assert-Value $log.Range('F'+$row).Value2 ('{0:0.00} ({1:0.00})' -f $calc.bill,$calc.ah) ('F'+$row)
+function Check-Structure($book) {
+  Assert-Value $book.Worksheets.Count 4 'Sheet count'
+  $tableCount=0
+  foreach ($sheet in $book.Worksheets) { $tableCount += $sheet.ListObjects.Count }
+  Assert-Value $tableCount 8 'Table count'
+}
+function Sort-Filter-Save($book, [string]$filename) {
+  $log=$book.Worksheets.Item('Work Log')
+  $table=$log.ListObjects.Item('RS_WorkLog')
+  $table.Sort.SortFields.Clear()
+  [void]$table.Sort.SortFields.Add($table.ListColumns.Item('Date').Range,0,2)
+  $table.Sort.Header=1
+  $table.Sort.Apply()
+  [void]$table.Range.AutoFilter(14,'Historical')
+  if ($table.AutoFilter.FilterMode) { $table.AutoFilter.ShowAllData() }
+  [void]$table.Range.AutoFilter(14,'Historical')
+  $excelTest.CalculateFullRebuild()
+  for ($i=1; $i -le $table.ListRows.Count; $i++) {
+    $type=$table.DataBodyRange.Cells.Item($i,14).Value2
+    if ($type -eq 'Historical') {
+      for ($c=1; $c -le 8; $c++) {
+        $cell=$table.DataBodyRange.Cells.Item($i,$c)
+        if ($cell.DisplayFormat.Interior.Color -ne 15790320) {
+          foreach ($condition in $cell.FormatConditions) {
+            Write-Output ('CF diagnostic: cell={0}; formula={1}; appliesTo={2}; color={3}; pattern={4}' -f $cell.Address(),$condition.Formula1,$condition.AppliesTo.Address(),$condition.Interior.Color,$condition.Interior.Pattern)
+          }
+          $book.SaveAs((Join-Path $artifactFolder 'excel-color-failure.xlsx'),51)
+        }
+        Assert-Value $cell.DisplayFormat.Interior.Color 15790320 ('Historical fill '+$i+':'+$c)
+      }
+    } elseif ($table.DataBodyRange.Cells.Item($i,1).DisplayFormat.Interior.Color -eq 15790320) {
+      throw 'Current row incorrectly uses Historical gray fill'
     }
   }
-  $jobs = @($expected.records | Where-Object { $_.kind -eq 'Job' }).Count
-  $total = ($expected.calculations | Measure-Object -Property total -Sum).Sum
-  $app = ($expected.records | ForEach-Object { if ($_.app -ne '') { [double]$_.app } } | Measure-Object -Sum).Sum
-  $diff = ($expected.calculations | Measure-Object -Property diff -Sum).Sum
-  Assert-Value $tool.Range('B6').Value2 $jobs 'Tool!B6'
-  Assert-Value $tool.Range('B7').Value2 $total 'Tool!B7'
-  Assert-Value $tool.Range('B8').Value2 $app 'Tool!B8'
-  Assert-Value $tool.Range('B9').Value2 $diff 'Tool!B9'
-  Assert-Value $tool.Range('B10').Value2 22.5 'Tool!B10'
+  $book.SaveAs((Join-Path $artifactFolder $filename),51)
 }
 try {
-  & node (Join-Path $PSScriptRoot 'excel-fixtures.mjs') prepare $artifactFolder
-  if ($LASTEXITCODE -ne 0) { throw 'Preparing Excel fixtures failed' }
-  $expectations = Get-Content -LiteralPath (Join-Path $artifactFolder 'expected.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-  $excelTest = New-Object -ComObject Excel.Application
-  $excelTest.Visible = $false
-  $excelTest.DisplayAlerts = $false
-  $excelTest.EnableEvents = $false
-  $excelTest.AutomationSecurity = 3
-  $excelVersion = $excelTest.Version
-  $bookTest = $excelTest.Workbooks.Open((Join-Path $artifactFolder 'source.xlsx'),0,$false)
+  Run-Fixture 'prepare'
+  try { $excelTest=New-Object -ComObject Excel.Application }
+  catch { Write-Output ('UNVERIFIED: Excel COM unavailable. HRESULT=0x{0:X8}; artifacts={1}' -f ($_.Exception.HResult -band 0xffffffffL),$artifactFolder); throw }
+  $excelTest.Visible=$false
+  $excelTest.DisplayAlerts=$false
+  $excelTest.EnableEvents=$false
+  $excelTest.AutomationSecurity=3
+  $expected=Get-Content -LiteralPath (Join-Path $artifactFolder 'expected.json') -Encoding UTF8 -Raw | ConvertFrom-Json
+  $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder 'source.xlsx'),0,$false)
+  Check-Structure $bookTest
   $excelTest.CalculateFullRebuild()
-  Assert-Workbook $bookTest $expectations.original
-  $bookTest.SaveAs((Join-Path $artifactFolder 'excel-resaved.xlsx'),51)
-  $logTest = $bookTest.Worksheets.Item('Work Log')
-  $configTest = $bookTest.Worksheets.Item('Config')
-  $logTest.Range('D6').Value2 = 0.25
-  $logTest.Range('E6').Value2 = 65.0
-  $logTest.Range('N6').Value2 = 30.0
-  $logTest.Range('H6').Value2 = 0.0
-  $logTest.Range('J6').Value2 = 'Synthetic edited in Excel'
-  $configTest.Range('B6').Value2 = 18.5/24
-  $excelTest.CalculateFullRebuild()
-  Assert-Workbook $bookTest $expectations.edited
-  $configTest.Move($bookTest.Worksheets.Item(1))
-  $bookTest.SaveAs((Join-Path $artifactFolder 'excel-edited-reordered.xlsx'),51)
-  $bookTest.Close($false); $bookTest=$null
-  $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder 'legacy.xlsx'),0,$false)
-  $excelTest.CalculateFullRebuild()
-  Assert-Value $bookTest.Worksheets.Item('Work Log').Range('G6').Value2 150 'Legacy!G6'
-  $bookTest.SaveAs((Join-Path $artifactFolder 'legacy-resaved.xlsx'),51)
-  $bookTest.Close($false); $bookTest=$null
-  foreach ($storageTest in @('inline','shared')) {
-    $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder ('phonetic-'+$storageTest+'.xlsx')),0,$false)
-    Assert-Value $bookTest.Worksheets.Item('Work Log').Range('J6').Value2 $expectations.phoneticNote ('Phonetic '+$storageTest)
-    $bookTest.SaveAs((Join-Path $artifactFolder ('phonetic-'+$storageTest+'-resaved.xlsx')),51)
-    $bookTest.Close($false); $bookTest=$null
+  $log=$bookTest.Worksheets.Item('Work Log')
+  for ($i=0; $i -lt $expected.records.Count; $i++) {
+    $row=$expected.top+1+$i
+    $record=$expected.records[$i]
+    foreach ($pair in @(@('D','lengthHours'),@('F','total'),@('L','diff'),@('U','raw'),@('V','bill'),@('W','ah'),@('X','rawAH'),@('Y','base'))) {
+      Assert-Value $log.Range($pair[0]+$row).Value2 $record.($pair[1]) ($pair[0]+$row)
+    }
   }
-  & node (Join-Path $PSScriptRoot 'excel-fixtures.mjs') verify $artifactFolder
-  if ($LASTEXITCODE -ne 0) { throw 'Verifying Excel round trip failed' }
+  for ($i=0; $i -lt $expected.summary.Count; $i++) {
+    $row=$i+3
+    Assert-Value $log.Range('B'+$row).Value2 $expected.summary[$i].estimated ('Summary B'+$row)
+    Assert-Value $log.Range('C'+$row).Value2 $expected.summary[$i].app ('Summary C'+$row)
+    Assert-Value $log.Range('D'+$row).Value2 $expected.summary[$i].difference ('Summary D'+$row)
+  }
+  Sort-Filter-Save $bookTest 'excel-resaved.xlsx'
+  $bookTest.Close($false);$bookTest=$null
+  Run-Fixture 'verify-first'
   $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder 'tool-resaved.xlsx'),0,$true)
+  Check-Structure $bookTest
   $excelTest.CalculateFullRebuild()
-  Assert-Workbook $bookTest $expectations.edited
-  $bookTest.Close($false); $bookTest=$null
-  foreach ($storageTest in @('inline','shared')) {
-    $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder ('phonetic-'+$storageTest+'-tool.xlsx')),0,$true)
-    Assert-Value $bookTest.Worksheets.Item('Work Log').Range('J6').Value2 $expectations.phoneticNote ('Phonetic Tool '+$storageTest)
-    $bookTest.Close($false); $bookTest=$null
+  $bookTest.Close($false);$bookTest=$null
+  foreach ($cycle in @(1,2)) {
+    $bookTest=$excelTest.Workbooks.Open((Join-Path $artifactFolder ('next'+$cycle+'.xlsx')),0,$false)
+    Check-Structure $bookTest
+    Sort-Filter-Save $bookTest ('next'+$cycle+'-resaved.xlsx')
+    $bookTest.Close($false);$bookTest=$null
+    if ($cycle -eq 1) { Run-Fixture 'verify-next1' } else { Run-Fixture 'verify-final' }
   }
-  [PSCustomObject]@{ Result='PASS'; ExcelVersion=$excelVersion; Records=$expectations.original.records.Count; PhoneticVariants=2; Artifacts=$artifactFolder } | ConvertTo-Json -Compress
+  [PSCustomObject]@{Result='PASS';Schema='5.0';ExcelVersion=$excelTest.Version;Cycles=2;Artifacts=$artifactFolder} | ConvertTo-Json -Compress
 } finally {
   if ($null -ne $bookTest) { $bookTest.Close($false) }
-  if ($null -ne $excelTest) { $excelTest.Quit(); [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($excelTest) }
+  if ($null -ne $excelTest) { $excelTest.Quit();[void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($excelTest) }
 }
-
-# Keep legacy and schema 4 compatibility in the same explicit desktop gate.
-& (Join-Path $PSScriptRoot 'test-excel-v4.ps1')

@@ -5,9 +5,7 @@
 *.csv
 *.pdf
 *.zip
-!templates/RouterStack_Tracker_V2_Blank.xlsx
-!templates/RouterStack_Tracker_V3_Blank.xlsx
-!templates/RouterStack_Tracker_V4_Blank.xlsx
+!templates/RouterStack_Tracker_V5_Blank.xlsx
 
 # Local user files and exports
 data/

@@ -1,67 +1,38 @@
-// Synthetic artifacts only. Called by test-excel.ps1 in a fresh temporary directory.
+﻿import {chromium} from '@playwright/test';
 import {readFile,writeFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
-import {createRequire} from 'node:module';
+import {join} from 'node:path';
 import assert from 'node:assert/strict';
-import {chromium} from '@playwright/test';
-import {url,legacy,withPhoneticNote} from '../tests/browser/helpers.mjs';
-const require=createRequire(import.meta.url), Core=require('../src/core.js');
-const [stage,folder]=process.argv.slice(2);
-if(!folder || !['prepare','verify'].includes(stage))throw Error('Usage: excel-fixtures.mjs prepare|verify <temporary-directory>');
-const file=name=>resolve(folder,name);
-const cases=[
-  ['19:00','20:00','','60','','0'],['22:00','02:00','','60','',''],['17:30','18:30','','60','',''],
-  ['06:00','08:00','','60','',''],['02:00','04:00','','60','',''],['05:00','07:00','','60','',''],
-  ['09:00','17:00','1','55','',''],['17:00','22:00','1','55','25','330'],['17:30','18:30','0.25','60','',''],
-  ['23:30','00:00','','60','',''],['18:00','06:00','','60','',''],['06:00','18:00','','60','',''],
-  ['12:00','14:30','','0.01','',''],['19:00','20:00','','0.01','-0.035',''],['05:59','06:01','','60','','']
-];
-const records=cases.map(([start,end,lunch,rate,extra,app],i)=>({kind:'Job',date:'2026-01-10',invoice:'INV-'+(9001+i),start,end,lunch,rate,extra,app,note:'Synthetic '+i+' 中文 & <test>',balance:''}));
-records.push({kind:'Carryover',date:'2025-12-01',invoice:'INV-9999',start:'',end:'',lunch:'',rate:'',extra:'',app:'',note:'Synthetic carryover',balance:'22.50'});
-const config={...Core.DEFAULT_CONFIG};
-const expected=(data,rules)=>({records:data,config:rules,calculations:data.map(row=>Core.calculate(row,rules))});
-const edited=structuredClone(records);Object.assign(edited[0],{lunch:'0.25',rate:'65',extra:'30',app:'0',note:'Synthetic edited in Excel'});
-const editedConfig={...config,ahStart:18.5};
-const normal=data=>data.map(row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key,['lunch','rate','extra','app','balance'].includes(key) && value!==''?Number(value):value])));
-const browser=await chromium.launch({channel:process.env.TEST_BROWSER || 'chrome',headless:true});
-try {
-  const page=await browser.newPage({acceptDownloads:true});
-  page.on('dialog',dialog=>dialog.accept());await page.addInitScript(()=>{window.showSaveFilePicker=undefined;window.showOpenFilePicker=undefined});
-  await page.goto(url);
-  async function exportFile(name,data,rules) {
-    const bytes=await page.evaluate(async({data,rules})=>[...new Uint8Array(await (await TrackerLegacyWorkbook.write(data,rules)).arrayBuffer())],{data,rules});
-    await writeFile(file(name),Buffer.from(bytes));
-  }
-  if(stage==='prepare') {
-    await exportFile('source.xlsx',records,config);
-    await writeFile(file('legacy.xlsx'),await legacy());
-    const bytes=await readFile(file('source.xlsx'));
-    for(const storage of ['inline','shared'])await writeFile(file('phonetic-'+storage+'.xlsx'),await withPhoneticNote(page,bytes,storage));
-    await writeFile(file('expected.json'),JSON.stringify({original:expected(records,config),edited:expected(edited,editedConfig),phoneticNote:'  Synthetic note 中文\n'},null,2));
-    console.log('Prepared synthetic Excel cases: '+records.length);
-  } else {
-    for(const [name,data,rules,changed]of [['excel-resaved.xlsx',records,config,false],['excel-edited-reordered.xlsx',edited,editedConfig,true]]) {
-      const bytes=await readFile(file(name));
-      const out=await page.evaluate(async bytes=>{const result=await TrackerLegacyWorkbook.read(new Uint8Array(bytes));return {version:result.version,records:result.records,config:result.config,configChanged:result.configChanged}},[...bytes]);
-      assert.equal(out.version,'3.0');assert.deepEqual(normal(out.records),normal(data));assert.deepEqual(out.config,rules);assert.equal(out.configChanged,changed);
-      if(changed) {
-        // Legacy IO remains a compatibility adapter. Main UI only writes v4;
-        // explicit migration/review is covered by workbook-v4 browser tests.
-        await exportFile('tool-resaved.xlsx',out.records,out.config);
-      }
-    }
-    // Excel-generated legacy shared formulas must also pass strict validation.
-    const legacyBytes=await readFile(file('legacy-resaved.xlsx'));
-    const old=await page.evaluate(async bytes=>{const out=await TrackerLegacyWorkbook.read(new Uint8Array(bytes));return {version:out.version,records:out.records}},[...legacyBytes]);
-    assert.equal(old.version,'2.0');assert.equal(old.records.length,1);
-    for(const storage of ['inline','shared']) {
-      for(const suffix of ['','-resaved']) {
-        const bytes=await readFile(file('phonetic-'+storage+suffix+'.xlsx'));
-        const parsed=await page.evaluate(async bytes=>{const out=await TrackerLegacyWorkbook.read(new Uint8Array(bytes));return {records:out.records,config:out.config}},[...bytes]);
-        assert.equal(parsed.records[0].note,'  Synthetic note 中文\n');
-        if(suffix)await exportFile('phonetic-'+storage+'-tool.xlsx',parsed.records,parsed.config);
-      }
-    }
-    console.log('Verified Excel edits, sheet reordering, both shared-formula versions and Tool re-export.');
-  }
-} finally {await browser.close()}
+import {url} from '../tests/browser/helpers.mjs';
+const [mode,folder]=process.argv.slice(2);
+if(!folder)throw Error('需要合成夹具目录');
+const browser=await chromium.launch({headless:true});
+try{
+ const page=await browser.newPage();await page.goto(url);
+ async function parse(name){const bytes=await readFile(join(folder,name));return page.evaluate(bytes=>TrackerWorkbook.read(new Uint8Array(bytes)),[...bytes])}
+ async function write(name,value){const bytes=await page.evaluate(async({name,value})=>[...new Uint8Array(await(await TrackerWorkbook.write(value,{fileName:name})).arrayBuffer())],{name,value});await writeFile(join(folder,name),Buffer.from(bytes))}
+ async function carry(value,name){return page.evaluate(({value,name})=>TrackerModel.carryForward(value,{name}),{value,name})}
+ if(mode==='prepare'){
+  const value=await page.evaluate(async()=>{
+   const M=TrackerModel,W=TrackerWorkbook;
+   let state=M.addRecord(M.create(),{date:'2026-01-01',invoice:'INV-9000',start:'19:00',end:'20:00',rate:60,app:150,note:'Synthetic historical 中文'});
+   state=M.carryForward(await W.read(await(await W.write(state)).arrayBuffer()),{name:'Synthetic Excel current'});
+   const jobs=[['22:00','02:00',null,60,null],['17:30','18:30',0.25,60,0],['06:00','08:00',null,55,110],['02:00','04:00',null,60,180],['05:00','07:00',null,60,150],['18:00','06:00',1,60,960],['06:00','18:00',1,60,null],['23:30','00:00',null,60,null],['17:00','22:00',1,55,330]];
+   jobs.forEach(([start,end,lunch,rate,app],i)=>{state=M.addRecord(state,{date:i%2?'2026-11-10':'2026-10-10',invoice:'INV-'+String(9001+i),start,end,lunch,rate,app,extra:i===8?25:null,note:'  Synthetic\n=SUM(1,2) & <test>  '})});
+   state=M.saveIssue(state,{description:'Independent unknown',amountCents:null});state=M.saveIssue(state,{description:'Independent signed reference',amountCents:-123});state=M.saveBalance(state,{description:'Confirmed zero',amountCents:0},null,'Explicit confirmation');state=M.saveBank(state,{date:'2026-11-11',amountCents:200});
+   return state;
+  });
+  await write('source.xlsx',value);const source=await parse('source.xlsx');
+  const expected=await page.evaluate(value=>({records:value.records.map(row=>({...row,...TrackerModel.calculate(value,row)})),summary:TrackerReports.summary(value),top:TrackerWorkbook.tableLayout(value)[0].top}),source);
+  await writeFile(join(folder,'expected.json'),JSON.stringify(expected,null,2));await writeFile(join(folder,'source-state.json'),JSON.stringify(source,null,2));
+  console.log(JSON.stringify({result:'PREPARED',records:source.records.length,folder}));
+ }else if(mode==='verify-first'){
+  const original=JSON.parse(await readFile(join(folder,'source-state.json'),'utf8')),parsed=await parse('excel-resaved.xlsx');
+  const canonical=value=>JSON.stringify(Object.fromEntries(Object.entries(value).map(([key,rows])=>[key,Array.isArray(rows)?[...rows].sort((a,b)=>a.id.localeCompare(b.id)):rows])));
+  assert.equal(canonical(parsed),canonical(original),'Normal Excel recalculation, sorting and filtering must retain controlled values');
+  await write('tool-resaved.xlsx',parsed);await write('next1.xlsx',await carry(parsed,'Synthetic next 1'));console.log('PASS: Excel → Tool → export; next1 prepared');
+ }else if(mode==='verify-next1'){
+  const state=await parse('next1-resaved.xlsx');assert.equal(state.records.every(row=>row.type==='Historical'),true);assert.equal(state.bankReceived.length,0);assert.equal(state.issues.length,2);assert.equal(state.balances[0].amountCents,0);await write('next2.xlsx',await carry(state,'Synthetic next 2'));console.log('PASS: first carried workbook; next2 prepared');
+ }else if(mode==='verify-final'){
+  const state=await parse('next2-resaved.xlsx');assert.equal(state.records.every(row=>row.type==='Historical'),true);assert.equal(state.bankReceived.length,0);assert.equal(state.issues.length,2);assert.equal(state.balances[0].amountCents,0);await write('next2-tool.xlsx',state);console.log('PASS: second carried workbook reopened and exported');
+ }else throw Error('Unknown fixture mode');
+}finally{await browser.close()}

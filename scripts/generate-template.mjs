@@ -1,0 +1,13 @@
+import {createRequire} from 'node:module';
+import {readFile,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import vm from 'node:vm';
+const require=createRequire(import.meta.url);
+globalThis.TrackerCore=require('../src/core.js');
+globalThis.TrackerModel=require('../src/model.js');
+globalThis.JSZip=require('../vendor/jszip.min.js');
+vm.runInThisContext(await readFile(new URL('../src/workbook.js',import.meta.url),'utf8'));
+const blob=await TrackerWorkbook.write(null,{template:true});
+const path=new URL('../templates/RouterStack_Tracker_V5_Blank.xlsx',import.meta.url);
+await writeFile(path,new Uint8Array(await blob.arrayBuffer()));
+console.log('Generated identity-free schema 5 template: '+fileURLToPath(path));

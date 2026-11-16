@@ -1,29 +1,22 @@
 ﻿# 路线图与实施状态
 
-范围只见 [Project Goal](PROJECT_GOAL.md)，实际格式见[数据契约](architecture.md)。本轮基线 HEAD 为 `130f2292174980dd095e9c9362673de16f18cbf1`，开始时工作区干净。当前为本地 v0.5.0 / schema 4.1 / calculation 3.0；未自动提交、推送或部署。
+范围见 [Project Goal](PROJECT_GOAL.md)，实际格式见 [数据契约](architecture.md)。2026-11-16 用户授权 v0.6 精简实施计划最终修订版，开始时 HEAD 为 67163c3104420756aa6d2d6fb712ee00c975785a，工作区干净。本轮修改保留在本地，未提交、推送或部署。
 
-## 本轮授权与顺序
+## 已接入 v0.6
 
-2026-11-16 用户明确授权实施最终修正版，按 P0-1 → P0-2 → P0-3 → P1-1 → P1-2 推进。前三批保持 schema 4.0；通过相关检查后才进入 P1。报告和旧计划不构成其他功能授权。
-
-| 批次 | 已接入行为 | 主要证据 |
+| 批次 | 结果 | 验证入口 |
 |---|---|---|
-| P0-1 | 仅存句柄／名称／写入资格的最近文件；主动重开实际 XLSX；Save / Save As、外部修改冲突、归档保护、失败留稿和下载确认 | workflow 浏览器测试、真实磁盘句柄及浏览器重启测试 |
-| P0-2 | Config 默认费率；成功后保留日期、恢复默认、清专属字段并聚焦 Start；编辑返回、Tab / Enter / IME 防重复 | workflow 浏览器测试、默认费率随 XLSX 往返 |
-| P0-3 | 自动提醒按实际数据派生；同一历史来源 App 可修正，观察历史留存；人工事项／余额与本期收入独立 | 历史修正路径、身份和重复 Invoice 回归 |
-| P1-1 | App Differences、历史来源、人工参考金额／明确余额、简单 Bank Received 分开展示；明确升级 4.0 → 4.1 | light-review 单元、升级逐表保全、未知／0 往返、Excel |
-| P1-2 | 允许检测类别的初始化／继承／明确排除；背景空范围；人工事项与确认余额独立选择；同源去重与连续结转 | 8 项指定情景及跨两周期、Excel 往返 |
+| 契约与计算 | schema 5.0、calculation 3.0 数值基线、Length、动态列映射；移除 300 条业务限制 | tests/core.test.mjs、docs/architecture.md |
+| 最小模型 | 单一 Current/Historical records；原子 CRUD；可空工作引用；银行 CRUD；App／事项／余额专用历史 | tests/model.test.mjs、tests/carry-forward.test.mjs |
+| 唯一 XLSX | 四 Sheet／八 Table；规范化 SHA-256；严格公式／类型／引用／额外数据／容量校验；无旧格式入口 | tests/browser/workbook.spec.mjs |
+| Tool | 八列、Historical 灰底、唯一 Summary、Config 预览／取消／过期保护、轻量表单与后补关联 | tests/browser/tracker.spec.mjs |
+| 文件生命周期 | Save／Save As、三阶段冲突、abort、write/close、并发输入、旧下载确认、归档、最近引用 | tests/browser/workflow.spec.mjs、scripts/test-recent-file.mjs |
+| 清理 | 删除旧金融、迁移、通用审计、Tim 及旧模板／测试；单一模板和桌面 Excel 入口；更新 package／CI | 当前源码、package.json、.github/workflows/ci.yml |
 
-## P1 字段必要性门禁
+## 验收状态
 
-已核对真实 TABLES、业务命令、校验、审计和读写代码：`issues` 无金额列，现有确认／付款字段不能混用为参考金额；来源 state 和旧自动问题状态不能保存允许检测范围。不得将金融数据／范围塞进 Notes 或隐藏 JSON。两项缺口均成立，只追加 `RS_issues.amountCents`、`RS_records.reminderKinds`，不新增表、Sheet 或迁移框架。
+本轮 Node、浏览器、原生句柄、301／1,000／5,000 条容量测试及实际性能见 [验证报告](reports/2026-11-17-v06-validation.md)。没有将旧报告结果算成本轮通过。
 
-旧 4.0 Historical 的初始范围必须逐项展示并明确确认，不能把缺字段静默当全部或空。升级保留原文件和全部支持格式旧数据，另存新文件；计算版本及 Work Log 顺序保持。
+桌面 Excel gate **通过**：受限进程曾返回 0x80070520，改为受限环境外执行同一 npm run test:excel 后，在 Excel 16.0 完成重算／全表排序／筛选／保存→Tool 重开→再导出和连续两次新周期。真实验收发现的 Table 筛选脚本调用与 Historical 差分背景色问题已修复，模板／嵌入资产同步，回归通过。完整过程和合成文件证据见上述报告。
 
-## 验收与限制
-
-实际结果及临时证据路径维护在[验证记录](reports/validation-history.md)，包含本轮完整检查、浏览器新增→保存→重开→结转、Excel 重算／排序／重开、未知与零和选择范围往返。
-
-本机 Chromium 无头模式跨进程重启后会拒绝旧磁盘句柄；已验证保留草稿、提示重新授权／选择，以及重新选择后读取磁盘更新的 XLSX。权限有效分支也有测试。不可把这些结果称作所有 Chrome/Edge 会话都能持续授权或静默恢复；存储或权限不可用仍可普通打开／另存。
-
-继续保留旧批次、分配、余额计算、Pending、Site、证据与审计的兼容测试，不继续扩建其流程。暂缓与排除范围保持 Goal 的约束；没有自动继续建设的新功能待办。
+本轮已授权实现和验收完成；没有自动提交、推送或部署。不恢复旧金融流程，也不启动暂缓功能。

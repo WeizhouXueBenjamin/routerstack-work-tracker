@@ -29,3 +29,5 @@ jobs:
         run: npm run check
       - name: Offline browser round trips
         run: npm run test:e2e
+      - name: Native file reference and permission fallback
+        run: npm run test:native

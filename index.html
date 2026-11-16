@@ -1,92 +1,35 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>RouterStack Work Tool v4</title>
-<link rel="stylesheet" href="./src/styles.css">
-</head>
-<body>
-<div class="app">
-<header class="top"><div><div class="eyebrow">ROUTERSTACK · LOCAL WORKSPACE</div><h1>Work Tool <span style="color:var(--teal)">v4</span></h1><div class="muted">新增工作 · 独立收入估算 · 可追溯的周期记录</div></div><div class="top-actions"><button id="openBtn">打开现有 Excel</button><button id="recentBtn" hidden>重开最近文件</button><button id="saveBtn" class="primary">保存 Save</button><button id="saveAsBtn">另存 Save As</button><button id="cycleBtn">创建新结算周期</button><input type="file" accept=".xlsx" id="fileInput" hidden/></div></header>
-<div id="statusBar" class="notice">当前使用空白 4.1 数据包。添加工作后需另存 Excel；下次继续时打开最新保留的文件。</div>
-<p id="recentStatus" class="helper" aria-live="polite"></p>
-<div class="toolbar"><button id="confirmDownload" hidden>我已保留下载文件</button><button id="upgradeBtn" hidden>预览升级为 4.1</button></div>
-<section class="stats"><div class="stat"><div class="cap">本文件工作数</div><div class="value" id="kJobs">0</div></div><div class="stat"><div class="cap">本文件工作预计（含 Extra）</div><div class="value" id="kExpected">$0.00</div></div><div class="stat"><div class="cap">本文件工作 App 已填合计</div><div class="value" id="kApp">—</div></div><div class="stat"><div class="cap">本文件工作可比差额</div><div class="value" id="kDiff">—</div></div></section>
-<div class="layout"><section class="panel"><div class="row-between"><h2 id="formTitle">新增工作记录</h2><span class="pill">一项工作 = 一张 Invoice</span></div><form id="jobForm"><div class="fields">
-<div class="field"><label for="date">工作日期 *</label><input type="date" id="date" required/></div><div class="field"><label for="invoice">Invoice ID</label><input id="invoice" placeholder="INV-0408" autocomplete="off"/><span class="helper">可后补，重复会拦截</span></div>
-<div class="field"><label for="start">开始时间 *</label><input id="start" type="time" required/></div><div class="field"><label for="end">结束时间 *</label><input id="end" type="time" required/></div>
-<div class="field"><label for="lunch">Lunch (h)</label><input id="lunch" type="number" min="0" step="any" placeholder="留空 = 0"/></div><div class="field"><label for="rate">Rate (NZD/h) *</label><input id="rate" type="number" min="0.01" step="0.01" placeholder="55" required/></div>
-<div class="field"><label for="app">App Displayed (NZD)</label><input id="app" type="number" min="0" step="0.01" placeholder="待显示可留空"/></div><div class="field"><label for="extra">Extra Cost (NZD)</label><input id="extra" type="number" step="0.01" placeholder="默认 0"/></div>
-<div class="field wide"><label for="note">Note</label><textarea id="note" placeholder="现场、加班费问题、特殊支出或待核对事项"></textarea></div></div>
-<details><summary>本次 App 观察资料（可选）</summary><div class="fields"><label class="field wide">观察时间（空白采用提交时刻）<input id="observedAt" type="datetime-local"></label><label class="field wide">来源<input id="observationSource" placeholder="RouterStack App"></label><label class="field wide">观察备注<input id="observationNote"></label></div></details>
-<div class="calc"><div class="row-between"><span class="muted">预计收入（含 Extra Cost）</span><strong id="liveExpected">—</strong></div><div class="row-between"><span class="muted">Billable (AH) Hours</span><strong id="liveHours" style="font-size:15px">—</strong></div><div class="helper" id="liveHint">填写时间及费率以预览计算</div></div>
-<div id="formError" class="error"></div><div class="row-between" style="margin-top:11px"><button type="button" id="cancelEdit" class="ghost" style="display:none">取消编辑</button><button type="submit" id="submitJob" class="primary" style="flex:1">添加这项工作</button></div></form>
-<button type="button" id="discardDraft" class="ghost">清空／放弃表单草稿</button>
-<details><summary>默认录入费率 · 随 Excel 保存</summary><form id="defaultRateForm"><label for="defaultRate">Default Hourly Rate (NZD/h)，未配置留空</label><input id="defaultRate" type="number" min="0.01" step="0.01"><button id="applyDefaultRate">应用默认费率</button><button id="cancelDefaultRate" type="button">取消设置草稿</button><p class="helper">只用于下一项工作；单笔 Rate 可覆盖，已有工作不变。应用后仍须保存 XLSX。</p><p id="defaultRateError" class="error" role="alert"></p></form></details>
-<div class="settings" id="rulesBox"></div></section>
-<section class="panel" id="workLogPanel">
-<div class="row-between"><h2>Work Log · 当前文件</h2><span class="muted" id="rowCount">0 条</span></div>
-<div class="view-controls"><label>工作月份<select id="monthFilter"><option value="">全部月份（当前文件）</option></select></label><label>工作提醒<select id="issueFilter"><option value="all">全部工作</option><option value="needs_review">需核对／待补</option><option value="difference">差额超过阈值</option><option value="missing_invoice">Invoice 待补</option><option value="missing_app">App 待填</option></select></label></div>
-<div class="month-summary" aria-live="polite"><p id="viewScope"></p><dl class="month-values"><div><dt>新工作数</dt><dd id="mJobs">0</dd></div><div><dt>工作预计（含 Extra）</dt><dd id="mExpected">$0.00</dd></div><div><dt>App 已填金额合计</dt><dd id="mApp">—</dd></div><div><dt>可比差额（逐笔合计）</dt><dd id="mDiff">—</dd></div></dl><p class="helper" id="comparisonSummary"></p><p class="helper" id="missingSummary"></p></div>
-<div class="toolbar"><label class="sr-only" for="search">搜索工作及结转</label><input id="search" placeholder="搜索 Invoice / 日期 / Note" style="flex:1;min-width:160px"/><button id="resetFilters">清除筛选</button></div>
-<div class="toolbar"><label for="copyScope">Tim 清单</label><select id="copyScope"><option value="issues">待核对项（所选月份）</option><option value="visible">当前可见记录</option><option value="all">所选月份全部工作</option></select><button id="copyBtn">复制给 Tim 的核对清单</button></div><p class="helper" id="copyScopeHint"></p>
-<div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Shift</th><th>Billable (AH)</th><th class="num">Expected</th><th class="num">App</th><th class="num">Difference</th><th>Note</th><th>提醒</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="10" class="blank">暂无工作记录。</td></tr></tbody></table></div>
-<section id="carryoverSection" class="carryover-view" hidden><h3>确认结转 · 单独列示</h3><p id="carrySummary"></p><p class="helper">原工作日期仅供追溯；结转不按月份或工作提醒筛选，仅受文本搜索影响。</p><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>原工作日期</th><th class="num">确认余额 NZD</th><th>Note</th></tr></thead><tbody id="carryoverRows"></tbody></table></div></section>
-<div class="foot">月度统计仅来自当前文件。筛选不修改记录，保存 Excel 始终包含本文件全部工作和结转。<br/>Lunch、Rate、Extra 等完整原始输入写入 Excel；辅助列位于 K–T。请先后使用 Excel 与小程序编辑，避免同时修改。</div>
-</section></div>
-<section class="panel reconciliation" id="lightReviewPanel" aria-labelledby="lightReviewTitle">
-<h2 id="lightReviewTitle">App Differences · 轻量核对</h2>
-<p class="helper">提醒由当前工作资料计算，随 App 更正消失或再次出现。差额是核对线索；银行实收、参考金额与人工确认余额分别保留。</p>
-<div class="table-wrap"><table><thead><tr><th>来源 / Invoice</th><th>Estimated + Extra</th><th>App</th><th>Difference</th><th>当前提醒</th><th>操作</th></tr></thead><tbody id="lReminders"></tbody></table></div>
-<details><summary>历史待核对／来源详情（不计入本期收入）</summary><div class="table-wrap"><table><thead><tr><th>原周期 / Invoice</th><th>日期 / RecordID</th><th>Expected</th><th>App / 实际差额</th><th>允许检测的类别</th><th>操作</th></tr></thead><tbody id="lHistorical"></tbody></table></div></details>
-<h3>人工事项与确认余额</h3>
-<form id="lManualForm" class="recon-operations"><div class="fields"><label class="field">来源<select id="lRecord"></select></label><label class="field">事项类型<select id="lKind"><option value="PaymentQuestion">付款问题（参考金额）</option><option value="InvoiceQuestion">Invoice 问题（参考金额）</option><option value="OtherQuestion">其他事项（参考金额）</option><option value="ConfirmedBalance">人工确认余额</option></select></label><label class="field">金额 NZD（参考金额可未知或明确 0）<input id="lAmount" type="number" step="0.01"></label><label class="field wide">来源说明／处理依据<textarea id="lReason" required></textarea></label><label class="wide check-list"><input type="checkbox" id="lConfirmBalance">我已核实并明确确认此金额为余额（仅确认余额时必选）</label></div><div class="toolbar"><button class="primary" id="lApply">登记人工事项</button><button type="button" id="lCancel">取消人工输入</button></div></form>
-<p id="lError" class="error" role="alert"></p>
-<div class="table-wrap"><table><thead><tr><th>来源</th><th>人工事项</th><th>参考金额（NZD）</th><th>状态</th><th>说明</th><th>操作</th></tr></thead><tbody id="lIssues"></tbody></table></div>
-<p class="helper">参考／争议金额未知时保留空值，填写金额不会自动确认余额。App 匹配或登记银行款均不关闭人工事项。</p>
-<div class="table-wrap"><table><thead><tr><th>来源</th><th>人工确认余额（NZD）</th><th>确认依据</th><th>操作</th></tr></thead><tbody id="lBalances"></tbody></table></div>
-</section>
-<section class="panel reconciliation" id="reconciliationPanel" aria-labelledby="reconciliationTitle">
-<h2 id="reconciliationTitle">Reconciliation · 到账与结算</h2>
-<p id="rReadOnly" hidden>旧版本仅供查看；请先预览升级为 4.1，再登记结算资料。</p>
-<p class="helper">理论收入、App、银行到账和确认历史余额分别保留。金额相等不会自动关联付款；批次核对完成不生成逐张 Invoice 的 Paid 状态。</p>
-<form id="rBankForm" class="bank-form"><label>到账日期<input id="rDate" type="date" required></label><label>实际到账 NZD<input id="rAmount" type="number" min="0.01" step="0.01" required></label><label>备注（可选）<input id="rNote"></label><button class="primary">登记银行到账</button><button type="button" id="rClearBank">清空到账输入</button></form>
-<p id="bankReceivedTotal"></p>
-<p id="rUnallocated"></p>
-<div class="table-wrap"><table><thead><tr><th>日期</th><th>实际到账 NZD</th><th>批次</th><th>有证据的逐笔关联</th><th>状态</th><th>备注</th></tr></thead><tbody id="rPayments"></tbody></table></div>
-<form id="rOpsForm" class="recon-operations">
-<div class="fields"><label class="field">核对操作<select id="rAction"></select></label><label class="field">核对批次<select id="rBatch"></select></label>
-<label class="field wide" id="rNameGroup" hidden>批次名称<input id="rName"></label>
-<label class="field wide" id="rPaymentGroup" hidden>银行到账<select id="rPayment"></select></label>
-<label class="field wide" id="rRecordGroup" hidden>工作／历史来源<select id="rRecord"></select></label>
-<label class="field wide" id="rAllocationGroup" hidden>原付款关联<select id="rAllocation"></select></label>
-<label class="field wide" id="rIssueGroup" hidden>独立问题<select id="rIssue"></select></label>
-<label class="field" id="rValueGroup" hidden>本次金额 NZD<input id="rValue" type="number" min="0" step="0.01"></label>
-<div id="rCorrectionGroup" class="wide fields" hidden><label class="field">更正到账日期（空白不改）<input id="rCorrectDate" type="date"></label><label class="field">更正备注（空白不改）<input id="rCorrectNote"></label></div></div>
-<div id="rObservationGroup" hidden class="fields"><label class="field wide">既有观察<select id="rObservation"></select></label><label class="field">观察时间<input type="datetime-local" id="rObservedAt"></label><label class="field">来源<input id="rObservationSource"></label><label class="field wide">备注<input id="rObservationNote"></label><p class="helper wide">仅修订观察资料；金额、计算快照和系统记录时间保留，修订另记审计。</p></div>
-<div id="rScopeGroup" hidden><p>明确选择本批次覆盖的来源。历史余额必须先有人工确认，待核对差异不会自动变成欠款。</p><div id="rScopeRows" class="scope-list"></div><div class="check-list"><label><input type="checkbox" id="rScopeConfirmed">已核实工作范围</label><label><input type="checkbox" id="rBasisConfirmed">已核实金额口径</label><label><input type="checkbox" id="rActualConfirmed">已核实本批次完整银行到账</label></div></div>
-<fieldset id="rProofGroup" hidden><legend>处理依据</legend><div class="fields"><label class="field wide">新依据／复用证据<select id="rEvidence"></select></label><label class="field wide">处理原因<textarea id="rReason"></textarea></label><label class="field">核对日期<input id="rEvidenceDate" type="date"></label><label class="field">来源<input id="rEvidenceSource"></label><label class="field wide">证据摘要<textarea id="rEvidenceSummary"></textarea></label><label class="field wide">参考编号／路径（只记录，不自动打开）<input id="rEvidenceRef"></label></div></fieldset>
-<div class="toolbar"><button class="primary" id="rApply" disabled>提交核对操作</button><button type="button" id="rClearOp">取消操作草稿</button></div></form>
-<div id="rError" class="error" role="alert"></div><p class="notice" id="rBatchSummary"></p>
-<details><summary>工作与历史来源 · 独立金额</summary><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>来源</th><th>Site</th><th>理论参考</th><th>证据关联付款</th><th>确认应结总额</th><th>确认历史剩余</th><th>核对提示</th></tr></thead><tbody id="rSources"></tbody></table></div></details>
-<details><summary>独立问题与批次问题</summary><div class="table-wrap"><table><thead><tr><th>问题</th><th>来源</th><th>状态</th><th>处理原因</th></tr></thead><tbody id="rIssues"></tbody></table></div></details>
-<details><summary>App 金额观察历史</summary><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>App 原值 → 新值</th><th>当时差额</th><th>观察时间</th><th>来源</th><th>备注</th></tr></thead><tbody id="rObservations"></tbody></table></div></details>
-<details><summary>操作审计（<span id="rAuditCount">0</span> 次）</summary><button id="rAllAudit" type="button">显示全部审计</button><div class="table-wrap"><table><thead><tr><th>顺序</th><th>系统时间</th><th>操作</th><th>原因与字段变化</th></tr></thead><tbody id="rAuditRows"></tbody></table></div></details>
-</section>
-<div class="foot">全部运算在当前浏览器本地完成，不上传数据到服务器。唯一记录文件是你保存的 XLSX；小程序关闭后不会自动保存尚未导出的改动。<br/>本轮确认的默认规则：AH 每天 18:00–次日 06:00、1.5 倍；最低 2 小时按普通／AH 占比分配；Lunch 先扣普通时段。实际估算以文件 Config 为准。</div>
-</div>
-<dialog class="modal" id="cycleModal" aria-labelledby="cycleTitle"><div class="row-between"><h2 id="cycleTitle">创建新工作周期</h2><button id="closeCycle" type="button">关闭</button></div><p class="notice">按类别选择新周期允许继续检测的提醒，人工事项和确认余额独立选择。排除不表示解决，也不改变旧周期。新文件的 Work Log 为空；旧工作、App 历史、银行和证据保留原 ID。旧周期保持打开，生成后请打开新文件继续。</p><div class="fields"><label class="field wide">新周期名称 *<input id="cycleName"></label><label class="field">开始日期（可选）<input type="date" id="cycleStart"></label><label class="field">结束日期（可选）<input type="date" id="cycleEnd"></label></div><p id="selectedCount"></p><div class="cycle-grid" id="carryRows"></div><div id="carrySummaryRows"></div><div id="cycleError" class="error"></div><button class="primary" id="createCycle">生成新周期 Excel</button></dialog>
-<dialog class="modal" id="reviewModal" aria-labelledby="reviewTitle"><h2 id="reviewTitle">预览规则差异</h2><p id="reviewRules"></p><div id="upgradeScopeReview" hidden><p>旧 Historical 没有提醒范围。请明确选择未来允许检测的类别；未出现的类别也会保留，全部取消表示仅作背景。</p><div id="upgradeScopeRows"></div><label><input type="checkbox" id="upgradeScopeConfirm">我已核对并确认以上历史来源的初始提醒范围</label></div><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>Date</th><th>原规则预计</th><th>新规则预计</th><th>变化</th></tr></thead><tbody id="reviewRows"></tbody></table></div><p id="reviewError" class="error" role="alert"></p><div class="toolbar" style="margin-top:16px"><button id="reviewCancel">取消，保留当前内容</button><button id="reviewConfirm" class="primary">确认变化，稍后另存新版本</button></div></dialog>
-<script src="./vendor/jszip.min.js"></script>
-<script src="./src/core.js"></script>
-<script src="./src/reconciliation.js"></script>
-<script src="./src/workbook.js"></script>
-<script src="./src/workbook-v4.js"></script>
-<script src="./src/reports.js"></script>
-<script src="./src/template-data.js"></script>
-<script src="./src/template-v4-data.js"></script>
-<script src="./src/reconciliation-ui.js"></script>
-<script src="./src/review-ui.js"></script>
-<script src="./src/recent-file.js"></script>
-<script src="./src/app.js"></script>
+﻿<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RouterStack Work Tracker</title><link rel="stylesheet" href="./src/styles.css"></head><body>
+<main class="app">
+<header class="top"><div><div class="eyebrow">ROUTERSTACK · OFFLINE WORK TRACKER</div><h1>工作记录与轻量核对</h1><div class="muted">v0.6.0 · 金额 NZD · 估算以文件 Config 为准</div></div><div class="top-actions"><button id="openBtn">打开现有 Excel</button><button id="recentBtn" hidden>重开最近文件</button><button id="saveBtn" class="primary">Save</button><button id="saveAsBtn">Save As</button><button id="cycleBtn">新工作周期</button><button id="confirmDownload" hidden>我已保留下载文件</button><input id="fileInput" type="file" accept=".xlsx" hidden></div></header>
+<p id="recentStatus" class="helper"></p><p id="statusBar" class="notice" role="status" aria-live="polite"></p>
+<section class="panel summary-panel" aria-labelledby="revenueTitle"><h2 id="revenueTitle">Revenue Summary</h2><div class="table-wrap summary-wrap"><table class="summary-table"><thead><tr><th>Period</th><th class="num">Estimated</th><th class="num">App</th><th class="num">Difference</th></tr></thead><tbody id="summaryRows"></tbody></table></div><p class="helper">* Partial：差额仅合计 Estimated 和 App 均已知的工作；无可比项显示 —。Historical 汇总历史工作；月份只统计 Current。筛选不改变此汇总或完整导出。</p></section>
+<div class="layout"><section class="panel"><h2 id="formTitle">新增工作记录</h2>
+<form id="jobForm" novalidate><div class="fields">
+<label class="field">Work Date *<input id="date" type="date" required></label><label class="field">Invoice ID<input id="invoice" placeholder="INV-XXXX，可后补"></label>
+<label class="field">Start Time *<input id="start" type="time" required></label><label class="field">End Time *<input id="end" type="time" required></label>
+<label class="field">Lunch (h)<input id="lunch" type="number" min="0" step="any" placeholder="空白按 0"></label><label class="field">Hourly Rate *<input id="rate" type="number" min="0" step="any"></label>
+<label class="field">Displayed Revenue<input id="app" type="number" min="0" step="any" placeholder="未知留空"></label><label class="field">Extra NZD<input id="extra" type="number" step="any"></label>
+<label class="field wide">Notes<textarea id="note" maxlength="32767"></textarea></label></div>
+<details><summary>App 变化观察资料（可选）</summary><label class="field">实际观察时间<input id="observedAt" type="datetime-local"></label><label class="field">备注<input id="observationNote"></label></details>
+<div class="calc"><div class="row-between"><span>Estimated Revenue（含 Extra）</span><strong id="liveExpected">—</strong></div><div id="liveHours">—</div><div id="liveHint" class="helper"></div></div>
+<p id="formError" class="error" role="alert"></p><div class="toolbar"><button id="submitJob" class="primary" type="submit">添加这项工作</button><button id="cancelEdit" type="button" hidden>返回新增</button><button id="discardDraft" type="button">取消输入</button></div></form>
+<details class="settings"><summary>Config · 计费规则与默认费率</summary><p id="rulesBox"></p>
+<form id="configForm" novalidate><div class="fields"><label class="field">Minimum Hours<input id="configMinHours" type="number" step="any"></label><label class="field">AH Multiplier<input id="configMult" type="number" step="any"></label><label class="field">AH Start<input id="configAHStart" type="time"></label><label class="field">AH End<input id="configAHEnd" type="time"></label><label class="field">Tolerance NZD<input id="configTolerance" type="number" step="any"></label></div><p class="helper">Lunch 固定先扣普通时段。预览确认后重算全部 Current；Historical 保留原规则快照。</p><div class="toolbar"><button id="previewConfig" type="submit">预览规则变化</button><button id="cancelConfig" type="button">取消规则草稿</button></div><p id="configError" class="error" role="alert"></p></form>
+<form id="defaultRateForm" novalidate><label class="field">Default Rate（可空）<input id="defaultRate" type="number" step="any"></label><p class="helper">仅用于下一笔预填，不修改已有工作。</p><div class="toolbar"><button id="applyDefaultRate" type="submit">应用默认费率</button><button id="cancelDefaultRate" type="button">取消设置草稿</button></div><p id="defaultRateError" class="error" role="alert"></p></form></details></section>
+<section class="panel" aria-labelledby="logTitle"><h2 id="logTitle">Work Log</h2><p class="helper">浅灰行 = Historical。在 Notes 栏查看来源并编辑；Length 为实际时长减 Lunch。</p>
+<div class="view-controls"><label>类型<select id="typeFilter"><option value="">全部类型</option><option>Current</option><option>Historical</option></select></label><label>月份<select id="monthFilter"><option value="">全部月份</option></select></label><label>提醒<select id="issueFilter"><option value="all">全部工作</option><option value="needs_review">有提醒</option><option value="missing_invoice">Invoice 待补</option><option value="missing_app">App 待填</option><option value="difference">差额待核对</option></select></label></div><div class="toolbar"><label class="sr-only" for="search">搜索工作</label><input id="search" placeholder="搜索 Invoice、日期、Notes 或 RecordID"><button id="resetFilters">清除筛选</button></div><p class="helper" id="recordCount"></p>
+<div class="table-wrap"><table id="workTable"><thead><tr><th>Date</th><th>Start Time</th><th>End Time</th><th class="num">Length</th><th class="num">Hourly Rate</th><th class="num">Estimated Revenue</th><th class="num">Displayed Revenue</th><th>Notes</th></tr></thead><tbody id="rows"></tbody></table></div></section></div>
+<section id="reviewPanel" class="panel reconciliation"><h2>跟进事项与银行到账</h2><p class="helper">自动提醒从工作资料派生。人工参考金额、确认余额和银行实收各自独立，不合计为欠款，也不推断单项已付。</p>
+<details open><summary>自动提醒</summary><div id="automaticRows"></div></details>
+<details open><summary>人工事项与确认余额</summary><div class="toolbar"><button id="newIssue" type="button">登记人工事项</button><button id="newBalance" type="button">确认余额</button></div>
+<form id="reviewForm" hidden novalidate><h3 id="reviewFormTitle"></h3><div class="fields"><label class="field wide">关联工作<select id="reviewRecord"></select></label><label id="reviewCategoryGroup" class="field">分类<input id="reviewCategory" value="Manual"></label><label class="field">金额 NZD<input id="reviewAmount" type="number" step="0.01"></label><label class="field wide">说明 *<textarea id="reviewDescription"></textarea></label><label class="field">状态<select id="reviewStatus"><option>Open</option><option>Closed</option></select></label><label class="field" id="reviewFollowGroup"><span>本文件继续跟进</span><input id="reviewFollow" type="checkbox" checked></label><label class="field wide">本次处理原因／确认依据 *<textarea id="reviewReason"></textarea></label></div><p class="helper" id="reviewAmountHint"></p><div class="toolbar"><button id="applyReview" class="primary" type="submit">提交事项</button><button id="cancelReview" type="button">取消事项草稿</button></div></form>
+<div class="table-wrap"><table><thead><tr><th>类型／ID</th><th>来源</th><th>说明</th><th>独立金额</th><th>状态</th><th>操作</th></tr></thead><tbody id="manualRows"></tbody></table></div></details>
+<details open><summary>Bank Received</summary><p id="bankTotal"></p><form id="bankForm" class="bank-form" novalidate><label>到账日期 *<input id="bankDate" type="date"></label><label>金额 NZD *<input id="bankAmount" type="number" min="0" step="0.01"></label><label>备注<input id="bankNote"></label><button id="submitBank" class="primary" type="submit">登记到账</button><button id="cancelBank" type="button">取消银行草稿</button></form><div class="table-wrap"><table><thead><tr><th>日期</th><th class="num">金额</th><th>备注</th><th>操作</th></tr></thead><tbody id="bankRows"></tbody></table></div></details>
+<p id="reviewError" class="error" role="alert"></p><details><summary>App／事项／余额历史</summary><div id="historyRows"></div></details></section>
+<footer class="foot">全部计算在本地完成。XLSX 是唯一持久工作数据；添加到内存后仍需显式保存。只支持 schema 5.0。计费模型是个人估算，不代表官方政策。</footer>
+</main>
+<dialog id="reviewModal" class="modal" aria-labelledby="reviewTitle"><h2 id="reviewTitle">预览 Config 变化</h2><p>仅重算 Current，不改变 Rate、App、人工事项或余额。确认后仍需 Save。</p><div class="table-wrap"><table><thead><tr><th>Invoice／RecordID</th><th>原 Estimated</th><th>新 Estimated</th><th>差额</th></tr></thead><tbody id="reviewRows"></tbody></table></div><p id="configPreviewError" class="error" role="alert"></p><div class="toolbar"><button id="reviewCancel">取消，保留原规则</button><button id="reviewConfirm" class="primary">确认应用规则</button></div></dialog>
+<dialog id="cycleModal" class="modal" aria-labelledby="cycleTitle"><div class="row-between"><h2 id="cycleTitle">创建新工作周期</h2><button id="closeCycle">关闭</button></div><p>选择继续检测的提醒、开放人工事项和确认余额。排除不表示解决，旧文件保持不变。选中的工作会显示为 Historical；银行到账不结转。生成后请打开新文件继续。</p><div class="fields"><label class="field wide">新周期名称 *<input id="cycleName"></label><label class="field">开始日期（可选）<input id="cycleStart" type="date"></label><label class="field">结束日期（可选）<input id="cycleEnd" type="date"></label></div><div id="carryRows" class="cycle-grid"></div><p id="selectedCount"></p><p id="cycleError" class="error" role="alert"></p><button id="createCycle" class="primary">生成新周期 Excel</button></dialog>
+<script src="./vendor/jszip.min.js"></script><script src="./src/core.js"></script><script src="./src/model.js"></script><script src="./src/reports.js"></script><script src="./src/workbook.js"></script><script src="./src/template-data.js"></script><script src="./src/recent-file.js"></script><script src="./src/review-ui.js"></script><script src="./src/app.js"></script>
 </body></html>

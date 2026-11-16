@@ -1,62 +1,89 @@
-(function(root){
+﻿(function(root){
   'use strict';
-  const R=root.TrackerReconciliation,C=root.TrackerCore,$=id=>document.getElementById(id);
-  const esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const cash=value=>value===null || value===undefined || value===''?'未知':'$'+Number(value).toFixed(2);
-  const labels=root.TrackerReports.ISSUE_LABELS;
-  let ctx,baseline='',editing=null;
-  const signature=()=>JSON.stringify(['lRecord','lKind','lAmount','lReason'].map(id=>$(id).value).concat($('lConfirmBalance').checked));
-  const hasDraft=()=>!!ctx && signature()!==baseline;
-  const error=message=>{$('lError').textContent=message;$('lError').style.display=message?'block':'none'};
-  const source=(bundle,id)=>{const row=bundle.tables.records.find(row=>row.id===id);return row?(row.invoice || 'Invoice 待补')+' · '+(row.date || '日期未知')+' · '+row.id:'无工作来源'};
-  function reset(){if(!ctx)return;editing=null;$('lManualForm').reset();baseline=signature();error('');syncControls()}
-  function blocked(){if(ctx.jobHasDraft() || ctx.otherDraft() || hasDraft()){error('请先提交或取消工作、人工事项或核对输入；当前草稿已保留。');return true}return false}
-  function update(next){ctx.onChange(next);error('')}
+  const M=root.TrackerModel,$=id=>document.getElementById(id);
+  let api,kind=null,entityId=null,bankId=null;
+  const values=ids=>ids.map(id=>$(id).type==='checkbox'?$(id).checked:$(id).value);
+  const bankFields=['bankDate','bankAmount','bankNote'];
+  const reviewFields=['reviewRecord','reviewCategory','reviewAmount','reviewDescription','reviewStatus','reviewFollow','reviewReason'];
+  let bankBaseline='',reviewBaseline='';
+  const bankSignature=()=>JSON.stringify(values(bankFields));
+  const reviewSignature=()=>JSON.stringify(values(reviewFields));
+  const bankDraft=()=>bankSignature()!==bankBaseline;
+  const entityDraft=()=>kind!==null && reviewSignature()!==reviewBaseline;
+  const hasDraft=()=>bankDraft() || entityDraft();
+  function error(message){$('reviewError').textContent=message;$('reviewError').style.display=message?'block':'none'}
+  function parseCents(value,{optional=false,signed=false}={}){
+    if(value==='' && optional)return null;
+    if(!new RegExp(signed?'^-?\\d+(?:\\.\\d{1,2})?$':'^\\d+(?:\\.\\d{1,2})?$').test(value))throw Error('金额必须是最多两位小数的'+(signed?'有符号':'非负')+'数值');
+    const result=Math.round(Number(value)*100);if(!Number.isSafeInteger(result))throw Error('金额超过安全精度');return result;
+  }
+  function resetBank(){
+    $('bankForm').reset();bankId=null;bankBaseline=bankSignature();$('submitBank').textContent='登记到账';
+  }
+  function resetEntity(){
+    $('reviewForm').reset();kind=null;entityId=null;reviewBaseline=reviewSignature();$('reviewForm').hidden=true;
+  }
+  function reset(){resetBank();resetEntity();error('')}
+  function sourceLabel(recordId){
+    if(recordId===null)return '未关联工作';
+    const row=M.get(api.getState().workbook,'records',recordId);return (row.invoice || 'Invoice 待补')+' · '+row.date+' · '+row.id;
+  }
+  function openEntity(nextKind,nextId=null){
+    if(api.getState().busy)return;
+    if(api.jobHasDraft() || bankDraft()){error('请先提交或取消工作／Config／银行草稿。');return}
+    if(entityDraft() && !confirm('确定放弃尚未提交的事项草稿？'))return;
+    resetEntity();kind=nextKind;entityId=nextId;
+    const state=api.getState().workbook,row=nextId?M.get(state,kind,nextId):null;
+    $('reviewRecord').innerHTML='<option value="">未关联工作</option>'+state.records.map(record=>`<option value="${api.safe(record.id)}">${api.safe(sourceLabel(record.id))}</option>`).join('');
+    $('reviewRecord').value=row?.recordId || '';$('reviewCategory').value=row?.category || 'Manual';$('reviewAmount').value=row?.amountCents===null || !row?'':(row.amountCents/100).toFixed(2);$('reviewDescription').value=row?.description || '';$('reviewStatus').value=row?.status || 'Open';$('reviewFollow').checked=row?.followUp ?? true;
+    $('reviewFormTitle').textContent=(row?'编辑':'登记')+(kind==='issues'?'人工事项':'人工确认余额');$('reviewCategoryGroup').hidden=kind!=='issues';$('reviewFollowGroup').hidden=kind!=='balances';$('reviewAmountHint').textContent=kind==='issues'?'参考金额可未知、0 或正负；不会变成确认余额。':'余额必须明确非负。0 不自动关闭；改额、关闭或重开须说明依据。';
+    $('reviewForm').hidden=false;reviewBaseline=reviewSignature();error('');api.onDraftChange();
+  }
   function render(){
-    if(!ctx)return;const {bundle}=ctx.getState();
-    if(!bundle){for(const id of ['lReminders','lHistorical','lIssues','lBalances','lRecord'])$(id).replaceChildren();$('bankReceivedTotal').textContent='旧格式的银行明细未知；显式升级后可登记实际到账。';syncControls();return}
-    const selected=$('lRecord').value;
-    $('lRecord').innerHTML='<option value="">选择工作／历史来源</option>'+bundle.tables.records.map(row=>`<option value="${row.id}">${esc(source(bundle,row.id))}</option>`).join('');$('lRecord').value=selected;
-    const rows=bundle.tables.records.filter(row=>R.automaticReminders(bundle,row).length);
-    $('lReminders').innerHTML=rows.map(row=>{const out=R.calculate(bundle,row);return `<tr><td>${row.state==='Job'?'本期':'历史'} · ${esc(row.invoice || 'Invoice 待补')}<br/>${esc(row.date)}</td><td>${cash(out?.total)}</td><td>${cash(row.app)}</td><td>${cash(out?.diff)}</td><td>${esc(R.automaticReminders(bundle,row).map(kind=>labels[kind]).join(' · '))}</td><td><button type="button" data-review-edit="${row.id}">查看／修正来源</button></td></tr>`}).join('') || '<tr><td colspan="6">当前没有适用的自动提醒</td></tr>';
-    $('lHistorical').innerHTML=bundle.tables.records.filter(row=>row.state==='Historical').map(row=>{const out=R.calculate(bundle,row),scope=R.reminderScope(row);return `<tr><td>${esc(bundle.tables.cycles.find(c=>c.id===row.originCycleId)?.name || '来源周期未知')}<br/>${esc(row.invoice || 'Invoice 待补')}</td><td>${esc(row.date)}<br/>${esc(row.id)}</td><td>${cash(out?.total)}</td><td>${cash(row.app)} / ${cash(out?.diff)}</td><td>${esc(scope===null?'旧格式未确认，请明确升级':scope.length?scope.map(kind=>labels[kind]).join(' · '):'仅作背景（不生成自动提醒）')}</td><td><button type="button" data-review-edit="${row.id}">修正来源 App／资料</button></td></tr>`}).join('') || '<tr><td colspan="6">没有历史工作来源</td></tr>';
-    $('lIssues').innerHTML=bundle.tables.issues.filter(row=>row.kind==='Invoice').map(row=>`<tr><td>${esc(source(bundle,row.recordId))}</td><td>${esc(row.code)}</td><td>${cash(row.amountCents==='' || row.amountCents===undefined?null:row.amountCents/100)}</td><td>${esc(row.status)}</td><td class="notes" title="${esc(row.reason)}">${esc(row.reason)}</td><td><button type="button" data-issue-edit="${row.id}">修改参考金额／说明</button><button type="button" data-issue-status="${row.id}">${row.status==='Open'?'明确解决':'重新打开'}</button></td></tr>`).join('') || '<tr><td colspan="6">尚无人工事项</td></tr>';
-    $('lBalances').innerHTML=bundle.tables.records.filter(row=>R.carryRemaining(bundle,row.id)!==null).map(row=>`<tr><td>${esc(source(bundle,row.id))}</td><td>${cash(R.carryRemaining(bundle,row.id)/100)}</td><td>${esc(bundle.tables.confirmations.find(c=>c.active && c.kind==='CarryBalance' && c.recordId===row.id)?.reason || '原文件确认期初余额')}</td><td><button type="button" data-balance-edit="${row.id}">明确修改余额</button></td></tr>`).join('') || '<tr><td colspan="4">没有人工确认余额</td></tr>';
-    $('bankReceivedTotal').textContent='Bank Received · 本文件有效到账合计 '+cash(bundle.tables.payments.filter(row=>row.status==='Active').reduce((sum,row)=>sum+row.cents,0)/100)+'；单独列示，不推断单项付款，不扣减人工余额。';
-    syncControls();
+    if(!api)return;
+    const state=api.getState(),workbook=state.workbook,{safe,money}=api;
+    $('automaticRows').innerHTML=workbook.records.map(row=>({row,kinds:M.reminders(workbook,row)})).filter(item=>item.kinds.length).map(({row,kinds})=>`<p><button class="mini" data-source="${safe(row.id)}">${safe(row.invoice || row.id)} · ${row.date}</button> ${safe(kinds.map(key=>root.TrackerReports.ISSUE_LABELS[key]).join(' · '))} · 差额 ${money(M.calculate(workbook,row).diff)}</p>`).join('') || '<p class="helper">当前没有自动提醒。</p>';
+    $('manualRows').innerHTML=['issues','balances'].flatMap(table=>workbook[table].map(row=>`<tr><td>${table==='issues'?'人工事项':'确认余额'}<div class="helper">${safe(row.id)}</div></td><td class="notes">${safe(sourceLabel(row.recordId))}</td><td class="notes">${safe(row.description)}</td><td class="num">${money(row.amountCents===null?null:row.amountCents/100)}</td><td>${row.status}${table==='balances' && !row.followUp?' · 本文件不跟进':''}</td><td><button class="mini" data-entity="${table}" data-id="${safe(row.id)}">编辑／关联／状态</button></td></tr>`)).join('') || '<tr><td colspan="6" class="blank">尚无人工事项或余额。</td></tr>';
+    $('bankTotal').textContent=`现存银行记录 ${workbook.bankReceived.length} 笔 · 总额 ${money(workbook.bankReceived.reduce((total,row)=>total+row.amountCents,0)/100)}`;
+    $('bankRows').innerHTML=workbook.bankReceived.map(row=>`<tr><td>${row.date}</td><td class="num">${money(row.amountCents/100)}</td><td class="notes">${safe(row.note)}</td><td><button class="mini" data-bank="${safe(row.id)}">编辑</button> <button class="mini danger" data-delete-bank="${safe(row.id)}">删除</button></td></tr>`).join('') || '<tr><td colspan="4" class="blank">尚无银行到账。</td></tr>';
+    $('historyRows').innerHTML=workbook.appChanges.map(row=>`<p>App · ${safe(row.invoice || row.recordId)} · ${money(row.oldApp)} → ${money(row.newApp)} · 当时 Estimated ${money(row.estimatedCents/100)}／Difference ${money(row.differenceCents===null?null:row.differenceCents/100)} · 观察 ${safe(row.observedAt)} · 记录 ${safe(row.recordedAt)} · ${safe(row.note)}</p>`).concat(...['issueHistory','balanceHistory'].map(table=>workbook[table].map(row=>`<p>${table==='issueHistory'?'事项':'余额'} · ${safe(row.issueId || row.balanceId)} #${row.sequence} ${row.action} · ${safe(row.timestamp)} · ${safe(sourceLabel(row.recordId))} · ${money(row.amountCents===null?null:row.amountCents/100)} · ${row.status} · ${safe(row.description)} · 依据：${safe(row.reason)}</p>`))).join('') || '<p class="helper">尚无专用历史。</p>';
+    for(const key of ['newIssue','newBalance','applyReview','submitBank'])$(key).disabled=state.busy;
   }
-  function syncControls(){if(!ctx)return;for(const element of $('lightReviewPanel').querySelectorAll('input,select,textarea,button'))element.disabled=!ctx.editable();if(editing){$('lRecord').disabled=true;$('lKind').disabled=true}$('lApply').textContent=editing?'保存人工事项修改':'登记人工事项／明确余额'}
-  function init(context){
-    ctx=context;reset();
-    for(const type of ['input','change'])$('lManualForm').addEventListener(type,()=>ctx.onDraftChange());
-    $('lCancel').onclick=()=>{if(hasDraft() && !confirm('确定放弃尚未提交的人工输入？'))return;reset();ctx.onDraftChange()};
-    $('lManualForm').addEventListener('submit',event=>{
-      event.preventDefault();if(!ctx.editable())return;
+  function init(options){
+    api=options;reset();
+    $('newIssue').onclick=()=>openEntity('issues');$('newBalance').onclick=()=>openEntity('balances');
+    $('cancelReview').onclick=()=>{if(!entityDraft() || confirm('确定放弃事项草稿？')){resetEntity();error('');api.onDraftChange()}};
+    $('cancelBank').onclick=()=>{if(!bankDraft() || confirm('确定放弃银行草稿？')){resetBank();error('');api.onDraftChange()}};
+    for(const key of [...bankFields,...reviewFields])$(key).addEventListener('input',()=>api.onDraftChange());
+    $('reviewForm').onsubmit=event=>{
+      event.preventDefault();if(api.getState().busy)return;
+      if(api.jobHasDraft() || bankDraft()){error('请先提交或取消工作／Config／银行草稿。');return}
       try{
-        if(ctx.jobHasDraft() || ctx.otherDraft())throw Error('请先提交或取消其他输入；人工草稿已保留。');
-        const bundle=ctx.getState().bundle,recordId=$('lRecord').value,kind=$('lKind').value,amount=$('lAmount').value,reason=$('lReason').value;
-        if(!recordId)throw Error('请选择事项来源');let next;
-        if(kind==='ConfirmedBalance'){
-          if(!$('lConfirmBalance').checked || C.blank(amount))throw Error('确认余额须填写明确金额，并主动勾选已核实确认。');
-          next=R.confirmAmount(bundle,{recordId,kind:'CarryBalance',amount,reason});
-        }else if(editing)next=R.reviseIssue(bundle,editing,{amount,reason});
-        else next=R.addIssue(bundle,{recordId,code:kind,amount,reason});
-        update(next);reset();render();ctx.onDraftChange();
-      }catch(e){error(e.message)}
+        const input={recordId:$('reviewRecord').value || null,amountCents:parseCents($('reviewAmount').value,{optional:kind==='issues',signed:kind==='issues'}),description:$('reviewDescription').value,status:$('reviewStatus').value};
+        if(kind==='issues')input.category=$('reviewCategory').value;else input.followUp=$('reviewFollow').checked;
+        const next=(kind==='issues'?M.saveIssue:M.saveBalance)(api.getState().workbook,input,entityId,$('reviewReason').value);
+        resetEntity();error('');api.onChange(next);
+      }catch(caught){error(caught.message)}
+    };
+    $('bankForm').onsubmit=event=>{
+      event.preventDefault();if(api.getState().busy)return;
+      if(api.jobHasDraft() || entityDraft()){error('请先提交或取消工作／Config／事项草稿。');return}
+      try{
+        const input={date:$('bankDate').value,amountCents:parseCents($('bankAmount').value),note:$('bankNote').value},state=api.getState().workbook;
+        if(state.bankReceived.some(row=>row.id!==bankId && row.date===input.date && row.amountCents===input.amountCents) && !confirm('已有同日同额到账。确认这是另一笔独立到账？'))return;
+        const next=M.saveBank(state,input,bankId);resetBank();error('');api.onChange(next);
+      }catch(caught){error(caught.message)}
+    };
+    $('reviewPanel').addEventListener('click',event=>{
+      const button=event.target.closest('button');if(!button || api.getState().busy)return;
+      if(button.dataset.source){api.editRecord(button.dataset.source);return}
+      if(button.dataset.entity){openEntity(button.dataset.entity,button.dataset.id);return}
+      if(!button.dataset.bank && !button.dataset.deleteBank)return;
+      if(api.jobHasDraft() || entityDraft() || bankDraft()){error('请先提交或取消现有草稿。');return}
+      const state=api.getState().workbook,row=M.get(state,'bankReceived',button.dataset.bank || button.dataset.deleteBank);
+      if(button.dataset.bank){bankId=row.id;$('bankDate').value=row.date;$('bankAmount').value=(row.amountCents/100).toFixed(2);$('bankNote').value=row.note;$('submitBank').textContent='保存到账修改';bankBaseline=bankSignature();api.onDraftChange()}
+      else if(confirm(`确认删除到账 ${row.date} · ${api.money(row.amountCents/100)}？仍需 Save 才持久化。`)){try{api.onChange(M.deleteBank(state,row.id));error('')}catch(caught){error(caught.message)}}
     });
-    $('lightReviewPanel').addEventListener('click',event=>{
-      const button=event.target.closest('button');if(!button || !ctx.editable())return;
-      if(!['reviewEdit','issueEdit','issueStatus','balanceEdit'].some(key=>button.dataset[key]))return;
-      if(blocked())return;
-      const bundle=ctx.getState().bundle;
-      try{
-        if(button.dataset.reviewEdit){ctx.editRecord(button.dataset.reviewEdit);return}
-        if(button.dataset.issueStatus){const row=R.get(bundle,'issues',button.dataset.issueStatus),reason=prompt('请填写人工处理依据；此操作不修改 App、银行或确认余额。',row.reason);if(reason===null)return;update(R.setIssueStatus(bundle,row.id,row.status==='Open'?'Closed':'Open',{reason}));return}
-        if(button.dataset.issueEdit){const row=R.get(bundle,'issues',button.dataset.issueEdit);editing=row.id;$('lRecord').value=row.recordId;$('lKind').value=['PaymentQuestion','InvoiceQuestion','OtherQuestion'].includes(row.code)?row.code:'OtherQuestion';$('lAmount').value=row.amountCents==='' || row.amountCents===undefined?'':row.amountCents/100;$('lReason').value=row.reason}
-        else{$('lRecord').value=button.dataset.balanceEdit;$('lKind').value='ConfirmedBalance';$('lAmount').value=R.carryRemaining(bundle,button.dataset.balanceEdit)/100;$('lConfirmBalance').checked=false}
-        syncControls();$('lReason').focus();ctx.onDraftChange();
-      }catch(e){error(e.message)}
-    });render();
   }
-  root.TrackerReviewUI=Object.freeze({init,render,reset,syncControls,hasDraft});
+  root.TrackerReviewUI=Object.freeze({init,render,reset,hasDraft});
 })(globalThis);

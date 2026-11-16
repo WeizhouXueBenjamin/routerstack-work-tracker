@@ -1,96 +1,50 @@
-import {readFile} from 'node:fs/promises';
-import {createRequire} from 'node:module';
-import {fileURLToPath,pathToFileURL} from 'node:url';
+﻿import {readFile} from 'node:fs/promises';
+import {pathToFileURL,fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
-const require=createRequire(import.meta.url);
-const root=fileURLToPath(new URL('../../',import.meta.url));
-const JSZip=require(resolve(root,'vendor/jszip.min.js'));
+export const root=fileURLToPath(new URL('../../',import.meta.url));
 export const url=pathToFileURL(resolve(root,'index.html')).href;
 export const synthetic=changes=>({date:'2026-01-10',invoice:'INV-9001',start:'09:00',end:'17:00',lunch:'',rate:'60',app:'',extra:'',note:'Synthetic 中文 & <test>',...changes});
-export async function add(page,changes={}) {for(const [key,value]of Object.entries(synthetic(changes)))await page.locator('#'+key).fill(value);await page.locator('#submitJob').click()}
-export async function download(page,button='#saveBtn',confirm=true) {
-  const waiting=page.waitForEvent('download');await page.locator(button).click();const file=await waiting;
-  const bytes=await readFile(await file.path());await page.waitForFunction(()=>!state.busy);
-  if(confirm)await page.locator('#confirmDownload').click();
-  return bytes;
+export async function boot(page){
+ await page.addInitScript(()=>{window.showOpenFilePicker=undefined;window.showSaveFilePicker=undefined});
+ page.on('dialog',dialog=>dialog.accept());await page.goto(url);
 }
-export async function open(page,bytes,name='synthetic.xlsx') {
-  await page.locator('#fileInput').setInputFiles({name,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:bytes});
-  await page.waitForFunction(()=>!state.busy);
+export async function add(page,changes={}){for(const [key,value] of Object.entries(synthetic(changes)))await page.locator('#'+key).fill(value);await page.locator('#submitJob').click()}
+export async function download(page,button='#saveBtn',confirm=true){
+ const waiting=page.waitForEvent('download');await page.locator(button).click();const file=await waiting;const bytes=await readFile(await file.path());await page.waitForFunction(()=>!state.busy);if(confirm)await page.locator('#confirmDownload').click();return bytes;
 }
-export async function legacy() {
-  const zip=await JSZip.loadAsync(await readFile(resolve(root,'templates/RouterStack_Tracker_V2_Blank.xlsx')));
-  let xml=await zip.file('xl/worksheets/sheet2.xml').async('string');
-  const cells={A6:46032,B6:'INV-9901',K6:19/24,L6:20/24,E6:60,M6:'Job',J6:'Synthetic legacy'};
-  for(const [ref,value]of Object.entries(cells))xml=xml.replace(new RegExp('<x:c r="'+ref+'"[^>]*?(?:/>|>[\\s\\S]*?</x:c>)'),`<x:c r="${ref}" t="${typeof value==='number'?'n':'str'}"><x:v>${value}</x:v></x:c>`);
-  zip.file('xl/worksheets/sheet2.xml',xml);return zip.generateAsync({type:'nodebuffer'});
+export async function open(page,bytes,name='synthetic.xlsx'){
+ await page.locator('#fileInput').setInputFiles({name,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:bytes});await page.waitForFunction(()=>!state.busy);
 }
-export async function withPhoneticNote(page,bytes,storage='inline') {
-  return Buffer.from(await page.evaluate(async({bytes,storage})=>{
-    const zip=await JSZip.loadAsync(new Uint8Array(bytes)),NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-    const doc=new DOMParser().parseFromString(await zip.file('xl/worksheets/sheet2.xml').async('string'),'application/xml');
-    const cell=[...doc.getElementsByTagNameNS(NS,'c')].find(cell=>cell.getAttribute('r')==='J6');
-    const body=(owner,tag)=>{
-      const value=owner.createElementNS(NS,tag);
-      for(const content of ['  Synthetic',' note 中文\n']){const run=owner.createElementNS(NS,'r'),text=owner.createElementNS(NS,'t');text.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');text.textContent=content;run.appendChild(text);value.appendChild(run)}
-      const hint=owner.createElementNS(NS,'rPh');hint.setAttribute('sb','2');hint.setAttribute('eb','11');
-      const text=owner.createElementNS(NS,'t');text.textContent='phonetic';hint.appendChild(text);value.appendChild(hint);
-      const props=owner.createElementNS(NS,'phoneticPr');props.setAttribute('fontId','0');value.appendChild(props);return value;
-    };
-    cell.replaceChildren();
-    if(storage==='inline'){cell.setAttribute('t','inlineStr');cell.appendChild(body(doc,'is'))}
-    else {
-      const entry=zip.file('xl/sharedStrings.xml');
-      const shared=new DOMParser().parseFromString(entry?await entry.async('string'):`<sst xmlns="${NS}"/>`,'application/xml');
-      const index=shared.getElementsByTagNameNS(NS,'si').length;
-      shared.documentElement.appendChild(body(shared,'si'));shared.documentElement.setAttribute('uniqueCount',index+1);shared.documentElement.setAttribute('count',Number(shared.documentElement.getAttribute('count') || index)+1);
-      cell.setAttribute('t','s');const v=doc.createElementNS(NS,'v');v.textContent=index;cell.appendChild(v);zip.file('xl/sharedStrings.xml',new XMLSerializer().serializeToString(shared));
-      if(!entry){
-        const rels=new DOMParser().parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('string'),'application/xml');
-        const rel=rels.createElementNS(rels.documentElement.namespaceURI,'Relationship');rel.setAttribute('Id','SyntheticSharedStrings');rel.setAttribute('Target','sharedStrings.xml');rel.setAttribute('Type','http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings');rels.documentElement.appendChild(rel);zip.file('xl/_rels/workbook.xml.rels',new XMLSerializer().serializeToString(rels));
-        const types=new DOMParser().parseFromString(await zip.file('[Content_Types].xml').async('string'),'application/xml'),override=types.createElementNS(types.documentElement.namespaceURI,'Override');override.setAttribute('PartName','/xl/sharedStrings.xml');override.setAttribute('ContentType','application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml');types.documentElement.appendChild(override);zip.file('[Content_Types].xml',new XMLSerializer().serializeToString(types));
-      }
-    }
-    zip.file('xl/worksheets/sheet2.xml',new XMLSerializer().serializeToString(doc));
-    return [...new Uint8Array(await zip.generateAsync({type:'arraybuffer'}))];
-  },{bytes:[...bytes],storage}));
+export async function makeBytes(page,{count=1,standalone=false}={}){
+ return Buffer.from(await page.evaluate(async({count,standalone})=>{
+  const M=TrackerModel;let value=M.create();
+  if(count){value=M.addRecord(value,{date:'2026-01-10',invoice:'INV-9000',start:'19:00',end:'20:00',rate:60,note:'  Synthetic 中文\n=SUM(1,2) '});const base=value.records[0];value.records=Array.from({length:count},(_,i)=>({...base,id:crypto.randomUUID(),invoice:'INV-'+String(9000+i),date:i%2?'2026-02-10':'2026-01-10',app:i%3?0:null}));}
+  if(standalone){value=M.saveIssue(value,{description:'Independent unknown',amountCents:null});value=M.saveIssue(value,{description:'Independent zero',amountCents:0});value=M.saveBalance(value,{description:'Confirmed zero',amountCents:0},null,'Explicit confirmation');}
+  return [...new Uint8Array(await(await TrackerWorkbook.write(value)).arrayBuffer())];
+ },{count,standalone}));
 }
-export async function mutate(page,bytes,operations=[],mode='') {
-  return Buffer.from(await page.evaluate(async({bytes,operations,mode})=>{
-    const zip=await JSZip.loadAsync(new Uint8Array(bytes)), NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-    const docs={};
-    for(const operation of operations) {
-      const path=operation.path || 'xl/worksheets/sheet2.xml';
-      const doc=docs[path] ||= new DOMParser().parseFromString(await zip.file(path).async('string'),'application/xml');
-      if(operation.removeRow){[...doc.getElementsByTagNameNS(NS,'row')].find(row=>row.getAttribute('r')===String(operation.removeRow))?.remove();continue}
-      let cell=[...doc.getElementsByTagNameNS(NS,'c')].find(cell=>cell.getAttribute('r')===operation.ref);
-      if(!cell) {
-        const n=operation.ref.match(/\d+/)[0];let row=[...doc.getElementsByTagNameNS(NS,'row')].find(row=>row.getAttribute('r')===n);
-        if(!row){row=doc.createElementNS(NS,'row');row.setAttribute('r',n);doc.getElementsByTagNameNS(NS,'sheetData')[0].appendChild(row)}
-        cell=doc.createElementNS(NS,'c');cell.setAttribute('r',operation.ref);row.appendChild(cell);
-      }
-      if(operation.removeFormula){[...cell.children].find(node=>node.localName==='f')?.remove();continue}
-      cell.replaceChildren();cell.setAttribute('t',operation.type || (typeof operation.value==='number'?'n':'str'));
-      if(operation.value!==''){const value=doc.createElementNS(NS,'v');value.textContent=String(operation.value);cell.appendChild(value)}
-      if(operation.formula){const f=doc.createElementNS(NS,'f');f.textContent=operation.formula;cell.appendChild(f)}
-    }
-    for(const [path,doc]of Object.entries(docs))zip.file(path,new XMLSerializer().serializeToString(doc));
-    if(mode==='relationships') {
-      const old='xl/worksheets/sheet2.xml', next='xl/worksheets/jobs-renamed.xml';zip.file(next,await zip.file(old).async('string'));zip.remove(old);
-      zip.file('xl/_rels/workbook.xml.rels',(await zip.file('xl/_rels/workbook.xml.rels').async('string')).replace('/worksheets/sheet2.xml','/worksheets/jobs-renamed.xml'));
-      const oldRels='xl/worksheets/_rels/sheet2.xml.rels';if(zip.file(oldRels)){zip.file('xl/worksheets/_rels/jobs-renamed.xml.rels',await zip.file(oldRels).async('string'));zip.remove(oldRels)}
-      zip.file('[Content_Types].xml',(await zip.file('[Content_Types].xml').async('string')).replace('/xl/worksheets/sheet2.xml','/xl/worksheets/jobs-renamed.xml'));
-      const book=new DOMParser().parseFromString(await zip.file('xl/workbook.xml').async('string'),'application/xml'), sheets=book.getElementsByTagNameNS(NS,'sheets')[0];sheets.insertBefore(sheets.lastElementChild,sheets.firstElementChild);zip.file('xl/workbook.xml',new XMLSerializer().serializeToString(book));
-    }
-    if(mode==='shared' || mode==='broken-shared') {
-      const doc=new DOMParser().parseFromString(await zip.file('xl/worksheets/sheet2.xml').async('string'),'application/xml');
-      for(const cell of doc.getElementsByTagNameNS(NS,'c'))if(/^F(?:[6-9]|\d{2,3})$/.test(cell.getAttribute('r'))) {
-        const f=[...cell.children].find(node=>node.localName==='f');if(!f)continue;
-        f.setAttribute('t','shared');f.setAttribute('si','7');
-        if(cell.getAttribute('r')==='F6' && mode==='shared')f.setAttribute('ref','F6:F305');else f.textContent='';
-      }
-      zip.file('xl/worksheets/sheet2.xml',new XMLSerializer().serializeToString(doc));
-    }
-    return [...new Uint8Array(await zip.generateAsync({type:'arraybuffer'}))];
-  },{bytes:[...bytes],operations,mode}));
+export async function mutate(page,bytes,operations=[],mode=''){
+ return Buffer.from(await page.evaluate(async({bytes,operations,mode})=>{
+  const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main',zip=await JSZip.loadAsync(new Uint8Array(bytes)),docs={};
+  for(const operation of operations){
+   const path=operation.path || 'xl/worksheets/sheet1.xml',doc=docs[path] ||= new DOMParser().parseFromString(await zip.file(path).async('string'),'application/xml');
+   let cell=[...doc.getElementsByTagNameNS(NS,'c')].find(node=>node.getAttribute('r')===operation.ref);
+   if(!cell){const r=operation.ref.match(/\d+$/)[0];let row=[...doc.getElementsByTagNameNS(NS,'row')].find(node=>node.getAttribute('r')===r);if(!row){row=doc.createElementNS(NS,'row');row.setAttribute('r',r);doc.getElementsByTagNameNS(NS,'sheetData')[0].appendChild(row)}cell=doc.createElementNS(NS,'c');cell.setAttribute('r',operation.ref);row.appendChild(cell)}
+   if(operation.removeFormula){[...cell.children].find(node=>node.localName==='f')?.remove();continue}
+   cell.replaceChildren();cell.setAttribute('t',operation.type || (typeof operation.value==='number'?'n':'str'));
+   if(operation.value!==undefined){const v=doc.createElementNS(NS,'v');v.textContent=String(operation.value);cell.appendChild(v)}
+   if(operation.formula){const f=doc.createElementNS(NS,'f');f.textContent=operation.formula;cell.appendChild(f)}
+  }
+  for(const [path,doc] of Object.entries(docs))zip.file(path,new XMLSerializer().serializeToString(doc));
+  if(mode==='sort' || mode==='shared' || mode==='broken-shared' || mode==='cache'){
+   const path='xl/worksheets/sheet1.xml',doc=new DOMParser().parseFromString(await zip.file(path).async('string'),'application/xml'),table=new DOMParser().parseFromString(await zip.file('xl/tables/table1.xml').async('string'),'application/xml');
+   const range=/A(\d+):AC(\d+)/.exec(table.documentElement.getAttribute('ref')),top=+range[1],bottom=+range[2];
+   const rows=[...doc.getElementsByTagNameNS(NS,'row')].filter(row=>+row.getAttribute('r')>top && +row.getAttribute('r')<=bottom);
+   if(mode==='sort')rows.reverse().forEach((row,i)=>{const old=+row.getAttribute('r'),next=top+i+1;row.setAttribute('r',next);for(const c of row.children){const ref=c.getAttribute('r'),col=ref.match(/^[A-Z]+/)[0];c.setAttribute('r',col+next);const f=[...c.children].find(node=>node.localName==='f');if(f)f.textContent=TrackerCore.translateFormula(f.textContent,col+old,col+next)}row.parentNode.appendChild(row)});
+   if(mode==='shared' || mode==='broken-shared')for(const row of rows){const cell=[...row.children].find(node=>node.getAttribute('r').startsWith('D')),f=[...cell.children].find(node=>node.localName==='f');f.setAttribute('t','shared');f.setAttribute('si','7');if(+row.getAttribute('r')===top+1 && mode==='shared')f.setAttribute('ref',`D${top+1}:D${bottom}`);else f.textContent=''}
+   if(mode==='cache')for(const cell of doc.getElementsByTagNameNS(NS,'c')){if(![...cell.children].some(node=>node.localName==='f'))continue;const v=[...cell.children].find(node=>node.localName==='v');if(v)v.textContent='999999'}
+   zip.file(path,new XMLSerializer().serializeToString(doc));
+  }
+  return [...new Uint8Array(await zip.generateAsync({type:'arraybuffer'}))];
+ },{bytes:[...bytes],operations,mode}));
 }

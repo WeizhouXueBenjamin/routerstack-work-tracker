@@ -1,16 +1,17 @@
 {
   "name": "routerstack-work-tracker",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Offline-first personal work and invoice reconciliation tool",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
     "test:excel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-excel.ps1",
-    "test:excel:v4": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-excel-v4.ps1",
+    "test:native": "node scripts/test-recent-file.mjs",
     "check": "npm run check:js && npm run template:check && npm test",
-    "check:js": "node --check src/core.js && node --check src/reconciliation.js && node --check src/reconciliation-ui.js && node --check src/workbook.js && node --check src/workbook-v4.js && node --check src/reports.js && node --check src/recent-file.js && node --check src/review-ui.js && node --check src/app.js && node --check src/template-data.js && node --check src/template-v4-data.js && node --check vendor/jszip.min.js",
+    "check:js": "node --check src/core.js && node --check src/model.js && node --check src/workbook.js && node --check src/reports.js && node --check src/recent-file.js && node --check src/review-ui.js && node --check src/app.js && node --check src/template-data.js && node --check vendor/jszip.min.js",
+    "template:generate": "node scripts/generate-template.mjs && npm run template:sync",
     "template:sync": "node scripts/embed-template.mjs",
     "template:check": "node scripts/embed-template.mjs --check"
   },
