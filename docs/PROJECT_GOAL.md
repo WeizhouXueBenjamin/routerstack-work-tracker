@@ -1,6 +1,6 @@
-﻿# Project Goal 与产品要求
+# Project Goal 与产品要求
 
-更新：2026-11-16。当前授权依据为用户《RouterStack v0.6 精简实施计划（最终评审修订版）》及“我授权开始实施”。该计划替代之前的兼容保留方向；本文是当前产品范围依据，实际字段见 [architecture.md](architecture.md)。
+更新：2026-11-17。当前授权依据为用户《RouterStack v0.6 精简实施计划（最终评审修订版）》、“我授权开始实施”及最终紧凑桌面 UI 规格。该计划替代之前的兼容保留方向；本文是当前产品范围依据，实际字段见 [architecture.md](architecture.md)。
 
 ## 核心目标
 
@@ -36,3 +36,15 @@ Excel 用于查看、重算、整表排序、筛选和保存；业务字段、Co
 本次明确移除旧 Settlement Batch、scope、付款分配、Payable、付款基点、金融证据、通用审计／回放、Pending／Opening／Site／预设兼容、重复工作数据、Tim 报告和 Excel 业务修改接受流程。后续不因历史计划恢复这些流程。
 
 暂缓事项仍包括 Site 录入、费率预设、复杂 Pending、多行网格／批量输入、复制工作、额外图表／报告、附件库、银行／App 接口、OCR、云同步、多文件自动合并和框架重写。新提案须说明服务哪个核心目标、现有功能为何不足、增加多少输入或维护负担。
+
+## 桌面 UI 范围（2026-11-17 最终确认）
+
+仅面向桌面，正式视口为 1366×768 和 1920×1080。删除手机断点、上下布局及触控适配，不再以 390px 验收；保留桌面窗口中的基本滚动容错。本节覆盖旧计划及历史报告中的移动端要求。
+
+- 简洁标题、文件／周期、Save／Save As、明确保存状态；错误持续显示。无品牌装饰、宣传副标题、统计卡片、阴影、渐变或动画。
+- 左侧 300–340px 快速录入，右侧以八列 Work Log 为主；Revenue Summary 紧凑置于表上方，保留原有金额及 Partial 语义。Work Log 内部滚动，表头固定；常规字号 13–14px、行高 32–36px，目标在 1366×768 显示 10–12 条完整记录。
+- Compact 默认：Notes 单行截断，点选记录在左侧统一编辑／确认删除，不增加 Actions 列。Expanded 临时收起左侧，八列保留，Notes 完整换行，尽量保持搜索、筛选、选择和滚动位置。不增加截图生成器、PDF 或其他导出。
+- New Entry 常显 Date／Start／End／Lunch／Rate；Invoice／App／Extra／Notes 收进 Additional Details，连续新增保持展开偏好。编辑时全部工作字段展开；完成／取消后恢复新增日期及默认 Rate，上下文和键盘行为继续保护。
+- Config、Bank Received、Unresolved 共用一个覆盖式右侧抽屉，内部滚动，不永久压缩工作表。关闭保留草稿；有草稿时先提交或明确取消再切换功能或 Expanded。Config 规则预览、银行独立登记、人工事项／余额及结转语义保持。
+
+本轮只授权布局、样式及最小 UI 交互；不改 WorkbookState、schema 5.0、calculation 3.0、四 Sheet／八 Table、计算／提醒／余额／结转及文件安全机制。实际截图与验证见 [紧凑桌面验收](reports/2026-11-17-compact-desktop.md)。

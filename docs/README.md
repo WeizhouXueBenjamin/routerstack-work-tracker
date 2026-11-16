@@ -1,4 +1,4 @@
-﻿# 文档入口
+# 文档入口
 
 ## 当前有效工程文档
 
@@ -14,6 +14,8 @@
 
 ## 验证报告与历史
 
+- [紧凑桌面 UI 与本轮验收](reports/2026-11-17-compact-desktop.md)：最终 Desktop-only 规格、Compact／Expanded、抽屉草稿、真实截图及回归。
+- [早期 UI 重设计](reports/2026-11-17-ui-redesign.md)：skill 来源核对及当时截图；布局和移动要求已被上述最终规格取代，仅作历史记录。
 - [本轮 v0.6 验证](reports/2026-11-17-v06-validation.md)：实际命令、性能与桌面 Excel 16.0 实测结果。
 - [验证历史](reports/validation-history.md)：追加式历史记录；旧结果不代表当前格式通过。
 - [旧范围审计](reports/2026-11-15-scope-audit.md) 及 archive/ 下资料只作历史参考，不授予开发权限，不作为当前支持契约。

@@ -41,7 +41,7 @@ try{
   await writeFile(filename,Buffer.from(fixture.second));
   page=await launch();await page.waitForFunction(()=>state.recent);
   const permission=await page.evaluate(()=>state.recent.handle.queryPermission({mode:'read'}));
-  await page.locator('#note').fill('Synthetic draft survives a failed restore');
+  await page.locator('#additionalDetails>summary').click();await page.locator('#note').fill('Synthetic draft survives a failed restore');
   if(permission!=='granted'){
     await page.locator('#recentBtn').click();await page.waitForFunction(()=>!state.busy);
     assert.equal(await page.locator('#note').inputValue(),'Synthetic draft survives a failed restore');

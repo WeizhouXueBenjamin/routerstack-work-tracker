@@ -188,3 +188,17 @@ Excel 回归使用 15 条工作及 1 条 Carryover，包括 18:00–06:00、混�
 受限环境外运行同一 `npm run test:excel` 后 Excel COM 可用。真实测试发现并修复了 Table 筛选清除调用，以及 Historical 条件格式的差分背景色；重新生成当前模板和嵌入资产。Excel 16.0 实际通过 10 项合成工作的计算／汇总、全表排序、筛选后保存、Historical A:H 灰底、Tool 重开再导出和连续两次新周期。此前“COM 阻塞／未验证”条目保留为当时状态，不作为最终结论。
 
 修复后 `npm run check`（35 项）、完整浏览器（62 项）和原生句柄检查通过；补充默认费率往返与 Tab 的定向回归也通过。实际通过目录为 `C:\Users\benja\AppData\Local\Temp\routerstack-excel-v5-81835d4a9b904984bca6d4ac1d9ac062`。当前结果与范围见 [v0.6 验证报告](2026-11-17-v06-validation.md)。未提交、推送或部署。
+
+## 2026-11-17 · UI 重设计
+
+依据用户明确要求，使用 skill-installer 核对 distinctive-ai-design 仓库根目录与本机同名安装，19 个文件 SHA-256 一致；按该 skill 完成工作台式 UI 重设计与两轮截图自查。采用固定保存区、紧凑录入、完整收入汇总和整页八列工作表，保留全部数据与业务行为。
+
+本轮 `npm run check` 通过 35 项，`npm run test:e2e` 通过 64 项，`npm run test:native` 通过；320／390／1024／1440px 页面无整体横向溢出，下载待确认与长文件名另有回归。没有修改 XLSX 解析／导出、计算、schema 或模板；本轮未重复桌面 Excel gate，不把历史通过计入此次 UI 验证。设计、自查、截图路径及验证边界见 [UI 重设计记录](2026-11-17-ui-redesign.md)。未提交、推送或部署。
+
+## 2026-11-17 · 最终紧凑桌面 UI
+
+用户完成偏好确认后明确 Desktop-only，覆盖之前移动端要求。改为左侧 320px 录入、右侧紧凑 Summary／八列 Work Log、Compact／Expanded、统一互斥右侧抽屉。删除手机样式及验收，新增记录选择／统一编辑／确认删除、抽屉及模式草稿保护、持续文件错误和键盘焦点验收。
+
+恢复时基线 check（35 项）及浏览器（64 项）通过。最终 `npm run check` 通过 35 项，完整 `npm run test:e2e` 通过 74 项（50.2 秒），`npm run test:native` 通过，`git diff --check` 通过。真实渲染在 1366×768／1920×1080 下为 34px 行高、150px 单月 Summary、12／21 条完整记录，无整体页面滚动或表格横向滚动；Expanded Notes 不截断。两轮截图自查、具体场景与证据见 [紧凑桌面验收](2026-11-17-compact-desktop.md)。
+
+没有改数据模型、计费、提醒、XLSX、模板或保存保护算法。桌面 Excel 本轮未重跑／未验证；保留此前条目的历史含义。没有自动提交、推送或部署。

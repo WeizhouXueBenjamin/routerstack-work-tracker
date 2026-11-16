@@ -1,4 +1,4 @@
-﻿# 路线图与实施状态
+# 路线图与实施状态
 
 范围见 [Project Goal](PROJECT_GOAL.md)，实际格式见 [数据契约](architecture.md)。2026-11-16 用户授权 v0.6 精简实施计划最终修订版，开始时 HEAD 为 67163c3104420756aa6d2d6fb712ee00c975785a，工作区干净。本轮修改保留在本地，未提交、推送或部署。
 
@@ -11,6 +11,7 @@
 | 唯一 XLSX | 四 Sheet／八 Table；规范化 SHA-256；严格公式／类型／引用／额外数据／容量校验；无旧格式入口 | tests/browser/workbook.spec.mjs |
 | Tool | 八列、Historical 灰底、唯一 Summary、Config 预览／取消／过期保护、轻量表单与后补关联 | tests/browser/tracker.spec.mjs |
 | 文件生命周期 | Save／Save As、三阶段冲突、abort、write/close、并发输入、旧下载确认、归档、最近引用 | tests/browser/workflow.spec.mjs、scripts/test-recent-file.mjs |
+| 紧凑桌面 UI | Desktop-only；左侧录入、右侧 Summary／Work Log、Compact／Expanded、三个互斥抽屉及草稿保护 | tests/browser/design.spec.mjs、[当前 UI 验收](reports/2026-11-17-compact-desktop.md) |
 | 清理 | 删除旧金融、迁移、通用审计、Tim 及旧模板／测试；单一模板和桌面 Excel 入口；更新 package／CI | 当前源码、package.json、.github/workflows/ci.yml |
 
 ## 验收状态

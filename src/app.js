@@ -7,6 +7,8 @@ const configInputs=['configMinHours','configAHStart','configAHEnd','configMult',
 const safe=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const money=value=>value===null || value===undefined?'—':'$'+Number(value).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
 const state={workbook:Model.create(),records:[],config:null,fileName:'RouterStack_Cycle.xlsx',sourceHandle:null,protectedHandles:[],archiveHandles:[],archiveFiles:new Set(),sourceWritable:false,recent:null,opened:false,editing:null,revision:0,persistedRevision:0,pending:null,busy:false,formBaseline:'',configBaseline:'',review:null,carryBaseline:null,carryPlan:null};
+// Presentation state only; never included in WorkbookState or persisted.
+const ui={mode:'compact',drawer:null,drawerFocus:null,newDetailsOpen:false,summaryExpanded:false,fileError:'',accessRequired:false,saved:false};
 Object.defineProperty(state,'dirty',{get:()=>state.revision!==state.persistedRevision});
 const archiveKey=metadata=>metadata.fileId+':'+metadata.fileVersionId;
 function useWorkbook(workbook){state.workbook=workbook;state.records=workbook.records;state.config=workbook.config}
@@ -22,33 +24,87 @@ const carrySignature=()=>JSON.stringify([['cycleName','cycleStart','cycleEnd'].m
 const hasCarryDraft=()=>$('cycleModal').open && state.carryBaseline!==null && carrySignature()!==state.carryBaseline;
 const hasUnsaved=()=>state.dirty || state.pending!==null || hasDraft() || settingsDraft() || configDraft() || reviewDraft() || hasCarryDraft();
 function showError(id,message){$(id).textContent=message;$(id).style.display=message?'block':'none'}
+function uiNotice(message){$('uiNotice').textContent=message;$('uiNotice').hidden=!message}
+function fileFailure(message){ui.fileError=message;ui.accessRequired=/权限|NotAllowed|permission/i.test(message);$('fileError').textContent=message;$('fileNotice').hidden=false;summary()}
+function clearFileFailure(){ui.fileError='';ui.accessRequired=false;$('fileNotice').hidden=true}
+$('dismissFileError').onclick=()=>{clearFileFailure();summary()};
+const drawerDraft=()=>settingsDraft() || configDraft()?'config':TrackerReviewUI.draftPanel?.() || null;
+function openDrawer(panel){
+  const pending=drawerDraft();
+  if(pending && pending!==panel){uiNotice('请先提交或取消 '+({config:'Config',bank:'Bank Received',unresolved:'Unresolved'}[pending])+' 草稿，再切换功能。输入已保留。');panel=pending}
+  if(ui.mode==='expanded')setDisplayMode('compact');
+  const changed=ui.drawer!==panel;if(changed)ui.drawerFocus=document.activeElement;
+  ui.drawer=panel;$('businessDrawer').hidden=false;
+  for(const [name,id,title] of [['config','configPanel','Config'],['bank','bankPanel','Bank Received'],['unresolved','reviewPanel','Unresolved']]){
+    $(id).hidden=name!==panel;$(name==='unresolved'?'unresolvedBtn':name+'Btn').setAttribute('aria-expanded',String(name===panel));
+    if(name===panel)$('drawerTitle').textContent=title;
+  }
+  summary();if(changed)$('closeDrawer').focus({preventScroll:true});
+}
+function closeDrawer({restoreFocus=true}={}){
+  const pending=drawerDraft();
+  $('businessDrawer').hidden=true;ui.drawer=null;
+  for(const id of ['configBtn','bankBtn','unresolvedBtn'])$(id).setAttribute('aria-expanded','false');
+  if(pending)uiNotice('抽屉草稿已保留，尚未提交。重新打开对应抽屉可继续编辑。');
+  if(restoreFocus && ui.drawerFocus?.isConnected)ui.drawerFocus.focus({preventScroll:true});
+  summary();
+}
+for(const panel of ['config','bank','unresolved'])$(panel+'Btn').onclick=()=>openDrawer(panel);
+$('closeDrawer').onclick=()=>closeDrawer();
+document.addEventListener('keydown',event=>{if(event.key==='Escape' && ui.drawer && !document.querySelector('dialog[open]')){event.preventDefault();closeDrawer()}});
+function setDisplayMode(mode){
+  if(mode===ui.mode)return true;
+  if(mode==='expanded' && (hasDraft() || drawerDraft())){
+    uiNotice('请先提交或取消未提交草稿，再切换 Expanded。当前输入和显示模式已保留。');
+    if(drawerDraft())openDrawer(drawerDraft());
+    return false;
+  }
+  const scroll=$('workScroll'),top=scroll.getBoundingClientRect().top+34;
+  const anchor=[...$('rows').children].find(row=>row.getBoundingClientRect().bottom>top);
+  const offset=anchor?anchor.getBoundingClientRect().top-top:0,left=scroll.scrollLeft;
+  if(mode==='expanded' && ui.drawer)closeDrawer({restoreFocus:false});
+  ui.mode=mode;document.body.dataset.mode=mode;
+  $('compactBtn').setAttribute('aria-pressed',String(mode==='compact'));$('expandedBtn').setAttribute('aria-pressed',String(mode==='expanded'));
+  if(anchor)scroll.scrollTop+=anchor.getBoundingClientRect().top-(scroll.getBoundingClientRect().top+34)-offset;
+  scroll.scrollLeft=left;uiNotice('');return true;
+}
+$('compactBtn').onclick=()=>setDisplayMode('compact');$('expandedBtn').onclick=()=>setDisplayMode('expanded');
 function noDraft(){
-  if(hasDraft()){showError('formError','工作表单尚未提交，请先添加／保存修改或取消输入。');$('submitJob').focus();return false}
-  if(settingsDraft() || configDraft()){showError('configError','请先应用或取消 Config 设置草稿。');$('configForm').closest('details').open=true;return false}
-  if(reviewDraft()){showError('reviewError','跟进区有未提交输入，请先提交或取消草稿。');$('reviewPanel').scrollIntoView();return false}
+  if(hasDraft()){setDisplayMode('compact');showError('formError','工作表单尚未提交，请先添加／保存修改或取消输入。');$('submitJob').focus();return false}
+  if(settingsDraft() || configDraft()){openDrawer('config');showError('configError','请先应用或取消 Config 设置草稿。');return false}
+  if(reviewDraft()){openDrawer(drawerDraft());showError('reviewError','跟进区有未提交输入，请先提交或取消草稿。');return false}
   return true;
 }
 function clearForm(){
   $('jobForm').reset();
   const date=new Date();state.newDate ||= `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
   $('date').value=state.newDate;$('rate').value=defaultRate();state.editing=null;state.composing=false;state.formBaseline=formSignature();
-  $('formTitle').textContent='新增工作记录';$('submitJob').textContent='添加这项工作';$('cancelEdit').hidden=true;showError('formError','');updatePreview();
+  $('formTitle').textContent='New Entry';$('submitJob').textContent='Add Entry';$('cancelEdit').hidden=true;$('deleteRecord').hidden=true;$('discardDraft').hidden=false;
+  $('recordIdentity').hidden=true;$('additionalDetails').open=ui.newDetailsOpen;$('observationDetails').open=false;
+  showError('formError','');updatePreview();markSelection();
 }
-function resetConfig(){
+$('additionalDetails').addEventListener('toggle',()=>{if(state.editing===null)ui.newDetailsOpen=$('additionalDetails').open});
+$('additionalDetails').querySelector('summary').onclick=event=>{if(state.editing!==null)event.preventDefault()};
+function resetConfig({preserveDefault=false}={}){
   const config=state.config;
   for(const [key,value] of Object.entries({configMinHours:config.minHours,configAHStart:Core.timeText(config.ahStart),configAHEnd:Core.timeText(config.ahEnd),configMult:config.mult,configTolerance:config.tolerance}))$(key).value=value;
-  state.configBaseline=configSignature();$('defaultRate').value=defaultRate();
+  state.configBaseline=configSignature();if(!preserveDefault)$('defaultRate').value=defaultRate();
   $('rulesBox').textContent=`最低 ${config.minHours} h · AH ${Core.timeText(config.ahStart)}–${Core.timeText(config.ahEnd)} · ${config.mult}× · 阈值 ${money(config.tolerance)}。最低补足按扣 Lunch 后的普通／AH 占比分配。`;
 }
 function updatePreview(){
   const original=state.records.find(row=>row.id===state.editing),config=original?Model.rulesFor(state.workbook,original):state.config;
   const calc=Core.calculate(formValues(),config);
   $('liveExpected').textContent=calc?money(calc.total):'—';
-  $('liveHours').textContent=calc?`Length ${calc.lengthHours.toFixed(2)} h · Billable ${calc.bill.toFixed(2)} (AH ${calc.ah.toFixed(2)}) h`:'—';
+  $('liveHours').textContent=calc?`Length ${calc.lengthHours.toFixed(2)} h · Billable ${calc.bill.toFixed(2)} (AH ${calc.ah.toFixed(2)}) h`:'';
   $('liveHint').textContent=original?.type==='Historical'?'使用此 Historical 的原规则快照':'App 不参与估算；填写有效时间和费率以预览';
 }
 function summary(){
-  const messages=[state.opened?'当前文件：'+state.fileName:'新的未保存工作簿','周期：'+Model.get(state.workbook,'periods',state.workbook.metadata.currentPeriodId).name];
+  const period=Model.get(state.workbook,'periods',state.workbook.metadata.currentPeriodId);
+  $('periodName').textContent=period.name;
+  $('periodName').title=period.name;
+  $('currentFileName').textContent=state.opened?state.fileName:'尚未保存的工作簿';
+  $('currentFileName').title=state.opened?state.fileName:'';
+  const messages=[];
   if(hasDraft())messages.push('工作表单尚未提交');
   if(settingsDraft() || configDraft())messages.push('Config 设置尚未应用');
   if(reviewDraft())messages.push('跟进输入尚未提交');
@@ -56,26 +112,41 @@ function summary(){
   if(state.dirty)messages.push('有尚未保存的修改');
   if(state.pending)messages.push('下载待确认保留：'+state.pending.filename);
   if(state.busy)messages.push('正在处理文件');
-  if(!hasUnsaved() && !state.busy)messages.push('已载入／就绪');
+  if(!hasUnsaved() && !state.busy)messages.push(state.opened?'文件已载入，可以继续添加或核对工作。':'打开现有周期，或在下方添加第一项工作。');
   $('statusBar').textContent=messages.join(' · ');$('confirmDownload').hidden=!state.pending;
-  for(const key of ['openBtn','recentBtn','saveBtn','saveAsBtn','cycleBtn','confirmDownload','createCycle','closeCycle','previewConfig','reviewConfirm','applyDefaultRate','newIssue','newBalance','applyReview','submitBank'])$(key).disabled=state.busy;
+  const status=state.busy?'busy':ui.fileError?(ui.accessRequired?'access':'error'):state.pending?'pending':hasDraft() || settingsDraft() || configDraft() || reviewDraft() || hasCarryDraft()?'draft':state.dirty?'dirty':ui.saved?'saved':state.opened?'ready':'new';
+  $('saveState').dataset.state=status;
+  $('saveState').textContent={busy:'正在处理',access:'File Access Required',error:'文件操作失败',pending:'下载待确认',draft:'输入未提交',dirty:'尚未保存',saved:'Saved',ready:'已载入',new:'新工作簿'}[status];
+  $('drawerDraftNotice').hidden=!drawerDraft();
+  if(!hasDraft() && !drawerDraft())uiNotice('');
+  for(const key of ['openBtn','recentBtn','saveBtn','saveAsBtn','cycleBtn','confirmDownload','createCycle','closeCycle','previewConfig','reviewConfirm','applyDefaultRate','newIssue','newBalance','newBank','applyReview','submitBank'])$(key).disabled=state.busy;
   for(const input of $('cycleModal').querySelectorAll('input'))input.disabled=state.busy;
 }
 function showRows(){
   const month=$('monthFilter').value,months=[...new Set(state.records.map(row=>row.date.slice(0,7)))].sort();
   $('monthFilter').innerHTML='<option value="">全部月份</option>'+months.map(value=>`<option value="${value}">${value}</option>`).join('');$('monthFilter').value=months.includes(month)?month:'';
   const visible=Reports.view(state.workbook,{type:$('typeFilter').value,month:$('monthFilter').value,query:$('search').value,issue:$('issueFilter').value});
-  $('recordCount').textContent=`显示 ${visible.length} / ${state.records.length} 项工作；全部资料均保存在完整导出中。`;
+  $('recordCount').textContent=`显示 ${visible.length} / ${state.records.length} 项工作 · 筛选不影响完整导出`;
   $('rows').innerHTML=visible.map(row=>{
     const calc=Model.calculate(state.workbook,row);
-    return `<tr data-record-id="${safe(row.id)}" class="${row.type==='Historical'?'historical':''}"><td>${row.date}</td><td>${row.start}</td><td>${row.end}</td><td class="num">${calc.lengthHours.toFixed(2)}</td><td class="num">${money(row.rate)}</td><td class="num">${money(calc.total)}</td><td class="num">${money(row.app)}</td><td class="notes"><span>${safe(row.note)}</span><div class="row-actions"><button class="mini" data-edit="${safe(row.id)}" aria-label="编辑 ${safe(row.invoice || row.id)}">${safe(row.invoice || 'Invoice 待补')} · 编辑</button>${row.type==='Current'?`<button class="mini danger" data-delete="${safe(row.id)}" aria-label="删除 ${safe(row.invoice || row.id)}">删除</button>`:''}</div></td></tr>`;
+    return `<tr data-record-id="${safe(row.id)}" class="${row.type==='Historical'?'historical':''}" aria-selected="${row.id===state.editing}" tabindex="-1" aria-label="${safe((row.invoice || 'Invoice 待补')+' · '+row.date+' '+row.start)}"><td>${row.date}</td><td>${row.start}</td><td>${row.end}</td><td class="num">${calc.lengthHours.toFixed(2)}</td><td class="num">${money(row.rate)}</td><td class="num">${money(calc.total)}</td><td class="num ${Model.reminders(state.workbook,row).includes('difference')?'difference':''}">${money(row.app)}</td><td class="notes"><span>${safe(row.note)}</span></td></tr>`;
   }).join('') || '<tr><td colspan="8" class="blank">没有匹配的工作记录。</td></tr>';
-  $('summaryRows').innerHTML=Reports.summary(state.workbook).map(row=>`<tr><th>${row.period.includes('-')?safe(new Date(row.period+'-01T00:00Z').toLocaleDateString('en-NZ',{month:'short',year:'numeric',timeZone:'UTC'})):row.period}</th><td class="num">${money(row.estimated)}</td><td class="num">${money(row.app)}</td><td class="num">${money(row.difference)}${row.partial && row.known?'*':''}</td></tr>`).join('');
+  markSelection();renderSummary();
   TrackerReviewUI.render();summary();
 }
+function markSelection(){
+  const rows=[...$('rows').querySelectorAll('[data-record-id]')],selected=rows.find(row=>row.dataset.recordId===state.editing);
+  for(const row of rows){row.setAttribute('aria-selected',String(row===selected));row.tabIndex=row===(selected || rows[0])?0:-1}
+}
+function renderSummary(){
+  const rows=Reports.summary(state.workbook),months=rows.filter(row=>!['Historical','Total'].includes(row.period)),hidden=new Set(months.slice(0,-2).map(row=>row.period));
+  $('toggleSummary').hidden=hidden.size===0;$('toggleSummary').textContent=ui.summaryExpanded?'收起较早月份':`显示较早 ${hidden.size} 个月`;$('toggleSummary').setAttribute('aria-expanded',String(ui.summaryExpanded));
+  $('summaryRows').innerHTML=rows.filter(row=>ui.summaryExpanded || !hidden.has(row.period)).map(row=>`<tr class="${row.period==='Historical'?'historical':row.period==='Total'?'total':''}"><th scope="row">${row.period.includes('-')?safe(new Date(row.period+'-01T00:00Z').toLocaleDateString('en-NZ',{month:'short',year:'numeric',timeZone:'UTC'})):row.period}</th><td class="num">${money(row.estimated)}</td><td class="num">${money(row.app)}</td><td class="num">${money(row.difference)}${row.partial && row.known?'*':''}</td></tr>`).join('');
+}
+$('toggleSummary').onclick=()=>{ui.summaryExpanded=!ui.summaryExpanded;renderSummary()};
 $('jobForm').addEventListener('submit',event=>{
   event.preventDefault();if(state.composing || state.composedEnter)return;
-  if(configDraft() || settingsDraft()){showError('formError','请先应用或取消 Config 草稿；工作输入已保留。');return}
+  if(configDraft() || settingsDraft() || reviewDraft()){showError('formError','请先提交或取消 Config／跟进草稿；工作输入已保留。');return}
   const input=formValues();
   try{
     const observation={observedAt:$('observedAt').value?new Date($('observedAt').value).toISOString():undefined,note:$('observationNote').value};
@@ -93,26 +164,40 @@ $('jobForm').addEventListener('keydown',event=>{
 for(const key of [...fields,'observedAt','observationNote'])$(key).addEventListener('input',()=>{updatePreview();summary()});
 function discardDraft(){return !hasDraft() || confirm('确定放弃尚未提交的工作输入？')}
 for(const key of ['cancelEdit','discardDraft'])$(key).onclick=()=>{if(discardDraft()){clearForm();summary()}};
-function editSource(recordId){
-  if(reviewDraft() || settingsDraft() || configDraft()){showError('reviewError','请先提交或取消跟进／Config 草稿，再编辑工作。');return}
-  if(!discardDraft())return;
+function editSource(recordId,{reveal=false}={}){
+  if(state.editing===recordId){if(reveal)setDisplayMode('compact');return true}
+  if(reviewDraft() || settingsDraft() || configDraft()){openDrawer(drawerDraft());showError('reviewError','请先提交或取消跟进／Config 草稿，再编辑工作。');return false}
+  if(!discardDraft())return false;
   const row=Model.get(state.workbook,'records',recordId);if(state.editing===null)state.newDate=$('date').value || state.newDate;
   clearForm();state.editing=row.id;for(const field of fields)$(field).value=row[field] ?? '';
-  state.formBaseline=formSignature();$('formTitle').textContent=row.type==='Historical'?'编辑 Historical 工作（原规则快照）':'编辑工作记录';$('submitJob').textContent='保存这项修改';$('cancelEdit').hidden=false;updatePreview();summary();$('jobForm').scrollIntoView();
+  state.formBaseline=formSignature();$('formTitle').textContent='Editing Record';$('submitJob').textContent='Save Changes';$('cancelEdit').hidden=false;$('deleteRecord').hidden=row.type!=='Current';$('discardDraft').hidden=true;
+  $('recordIdentity').textContent=`${row.type} · ${row.invoice || 'Invoice 待补'} · ${row.date} ${row.start}–${row.end}`;$('recordIdentity').title=row.id;$('recordIdentity').hidden=false;
+  $('additionalDetails').open=true;uiNotice('');markSelection();updatePreview();summary();
+  if(reveal){setDisplayMode('compact');closeDrawer({restoreFocus:false});$('note').focus({preventScroll:true})}
+  return true;
 }
 $('rows').onclick=event=>{
-  const button=event.target.closest('button');if(!button)return;
-  if(button.dataset.edit){editSource(button.dataset.edit);return}
+  const row=event.target.closest('[data-record-id]');if(row && editSource(row.dataset.recordId))row.focus({preventScroll:true});
+};
+$('workScroll').onkeydown=event=>{
+  if(!['ArrowDown','ArrowUp','Home','End','Enter'].includes(event.key) || event.isComposing)return;
+  const rows=[...$('rows').querySelectorAll('[data-record-id]')];if(!rows.length)return;
+  event.preventDefault();const index=rows.findIndex(row=>row.dataset.recordId===state.editing);
+  const next=event.key==='Home'?0:event.key==='End'?rows.length-1:event.key==='ArrowDown'?Math.min(index+1,rows.length-1):event.key==='ArrowUp'?Math.max(index-1,0):Math.max(index,0);
+  if(editSource(rows[next].dataset.recordId,{reveal:event.key==='Enter'})){rows[next].focus({preventScroll:true});rows[next].scrollIntoView({block:'nearest'});if(event.key==='Enter')$('start').focus()}
+};
+$('deleteRecord').onclick=()=>{
+  if(!state.editing)return;
   if(!noDraft())return;
-  const row=Model.get(state.workbook,'records',button.dataset.delete),history=state.workbook.appChanges.some(entry=>entry.recordId===row.id);
+  const row=Model.get(state.workbook,'records',state.editing),history=state.workbook.appChanges.some(entry=>entry.recordId===row.id);
   if(!confirm('确认删除 '+(row.invoice || row.date)+'？'+(history?'此工作的 App 变化历史也会删除。':'')+'仍需 Save 才持久化。'))return;
-  try{useWorkbook(Model.deleteRecord(state.workbook,row.id));state.revision++;if(state.editing===row.id)clearForm();showRows()}catch(error){alert(error.message)}
+  try{useWorkbook(Model.deleteRecord(state.workbook,row.id));state.revision++;clearForm();showRows()}catch(error){showError('formError',error.message)}
 };
 $('search').oninput=showRows;
 for(const key of ['typeFilter','monthFilter','issueFilter'])$(key).onchange=showRows;
 $('resetFilters').onclick=()=>{$('typeFilter').value='';$('monthFilter').value='';$('issueFilter').value='all';$('search').value='';showRows()};
 for(const key of configInputs)$(key).oninput=summary;
-$('cancelConfig').onclick=()=>{if(!configDraft() || confirm('确定放弃规则草稿？')){resetConfig();showError('configError','');summary()}};
+$('cancelConfig').onclick=()=>{if(!configDraft() || confirm('确定放弃规则草稿？')){resetConfig({preserveDefault:true});showError('configError','');summary()}};
 $('configForm').onsubmit=event=>{
   event.preventDefault();if(state.busy)return;
   if(hasDraft() || settingsDraft() || reviewDraft()){showError('configError','请先提交或取消工作、默认费率或跟进草稿。');return}
@@ -142,7 +227,7 @@ function commitFile(workbook,file,handle,sourceHash,writable){
   useWorkbook(workbook);state.sourceHandle=handle;state.sourceWritable=!!handle && writable && !!workbook.metadata.fileVersionId && !state.archiveFiles.has(archiveKey(workbook.metadata));
   if(handle && !state.protectedHandles.includes(handle))state.protectedHandles.push(handle);
   state.fileName=file.name;state.sourceHash=sourceHash;state.opened=true;state.revision=workbook.metadata.fileVersionId?0:1;state.persistedRevision=0;state.pending=null;state.newDate=null;
-  resetConfig();clearForm();TrackerReviewUI.reset();$('typeFilter').value='';$('monthFilter').value='';$('issueFilter').value='all';$('search').value='';showRows();if(handle)rememberFile(handle,file.name,state.sourceWritable);return true;
+  resetConfig();clearForm();TrackerReviewUI.reset();clearFileFailure();ui.saved=false;closeDrawer({restoreFocus:false});setDisplayMode('compact');$('workScroll').scrollTop=0;$('typeFilter').value='';$('monthFilter').value='';$('issueFilter').value='all';$('search').value='';showRows();if(handle)rememberFile(handle,file.name,state.sourceWritable);return true;
 }
 async function takeFile(file,handle=null,writable=true){
   if(state.busy)return;state.busy=true;summary();
@@ -150,11 +235,11 @@ async function takeFile(file,handle=null,writable=true){
     if(file.size>TrackerWorkbook.FILE_LIMIT)throw Error('XLSX 输入超过 32MiB');
     const bytes=await file.arrayBuffer(),workbook=await TrackerWorkbook.read(bytes),hash=await TrackerWorkbook.hashBytes(bytes);
     if(commitFile(workbook,file,handle,hash,writable))alert('已加载 schema 5.0；工作、事项与必要历史已校验。');
-  }catch(error){alert('无法打开文件：'+error.message)}finally{state.busy=false;summary()}
+  }catch(error){fileFailure('无法打开文件：'+error.message);alert('无法打开文件：'+error.message)}finally{state.busy=false;summary()}
 }
 $('openBtn').onclick=async()=>{
   if(state.busy)return;
-  if(window.showOpenFilePicker){try{const [handle]=await window.showOpenFilePicker({types:[{description:'Excel',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}],multiple:false});await takeFile(await handle.getFile(),handle)}catch(error){if(error.name!=='AbortError')alert('文件选择失败：'+error.message)}return}
+  if(window.showOpenFilePicker){try{const [handle]=await window.showOpenFilePicker({types:[{description:'Excel',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}],multiple:false});await takeFile(await handle.getFile(),handle)}catch(error){if(error.name!=='AbortError'){fileFailure('文件选择失败：'+error.message);alert('文件选择失败：'+error.message)}}return}
   $('fileInput').click();
 };
 $('fileInput').onchange=event=>{const file=event.target.files[0];if(file)takeFile(file);event.target.value=''};
@@ -166,7 +251,7 @@ async function loadRecentFile(){try{const recent=await TrackerRecentFile.read();
 $('recentBtn').onclick=async()=>{
   if(state.busy || !state.recent)return;
   const {handle,writable}=state.recent;state.busy=true;summary();
-  try{if(await handle.queryPermission({mode:'read'})!=='granted' && await handle.requestPermission({mode:'read'})!=='granted')throw Error('未获得读取权限');const file=await handle.getFile();state.busy=false;await takeFile(file,handle,writable)}catch(error){$('recentStatus').textContent='无法重开最近文件：'+error.message+'。当前记录和草稿已保留，请重新选择。'}finally{state.busy=false;summary()}
+  try{if(await handle.queryPermission({mode:'read'})!=='granted' && await handle.requestPermission({mode:'read'})!=='granted')throw Error('未获得读取权限');const file=await handle.getFile();state.busy=false;await takeFile(file,handle,writable)}catch(error){const message='无法重开最近文件：'+error.message+'。当前记录和草稿已保留，请重新选择。';$('recentStatus').textContent=message;fileFailure(message)}finally{state.busy=false;summary()}
 };
 function versionedFilename(newCycle=false) {
   const date=new Date(), pad=(n,w=2)=>String(n).padStart(w,'0');
@@ -206,19 +291,20 @@ async function exportSnapshot(workbook,revision,kind) {
         state.sourceHandle=handle;state.sourceWritable=true;state.persistedRevision=revision;state.fileName=handle.name;state.opened=true;state.pending=null;state.sourceHash=sourceHash;if(state.workbook?.metadata.fileId===metadata.fileId)Object.assign(state.workbook.metadata,metadata);
         rememberFile(handle,handle.name,true);
       }else if(kind==='cycle'){state.archiveFiles.add(archiveKey(state.workbook.metadata));state.sourceWritable=false;if(previousHandle){state.archiveHandles.push(previousHandle);rememberFile(previousHandle,state.fileName,false)}}
+      clearFileFailure();if(kind!=='cycle')ui.saved=true;
       alert((kind==='save'?'已保存当前文件：':'已另存新文件：')+handle.name+(kind==='cycle'?'。原周期仍保持打开；请打开新文件继续录入。':''));
     } else {
       downloadBlob(blob,filename);
-      state.pending={revision,filename,kind,metadata,sourceHash};
+      state.pending={revision,filename,kind,metadata,sourceHash};clearFileFailure();
       alert('已发起下载，待确认保留：'+filename+'。浏览器无法确认你是否已保留文件；确认后请点击“我已保留下载文件”。'+(kind==='cycle'?'原周期保持打开，请打开新周期文件继续。':''));
     }
     return true;
-  } catch(error){if(error.name!=='AbortError')alert('保存失败：'+error.message);return false}
+  } catch(error){if(error.name!=='AbortError'){fileFailure('保存失败：'+error.message);alert('保存失败：'+error.message)}return false}
   finally{state.busy=false;summary()}
 }
 async function saveFile(saveAs=false){
   if(state.busy || !noDraft())return;
-  try{Model.validate(state.workbook)}catch(error){alert(error.message);return}
+  try{Model.validate(state.workbook)}catch(error){fileFailure(error.message);alert(error.message);return}
   await exportSnapshot(clone(state.workbook),state.revision,!saveAs && state.sourceHandle && state.sourceWritable?'save':'same');
 }
 $('saveBtn').onclick=()=>saveFile();
@@ -228,7 +314,7 @@ $('confirmDownload').onclick=()=>{
   const pending=state.pending;
   if(pending.kind==='same'){if(state.sourceHandle){state.archiveHandles.push(state.sourceHandle);rememberFile(state.sourceHandle,state.fileName,false)}state.sourceHandle=null;state.sourceWritable=false;state.persistedRevision=pending.revision;state.fileName=pending.filename;state.opened=true;state.sourceHash=pending.sourceHash;if(state.workbook?.metadata.fileId===pending.metadata.fileId)Object.assign(state.workbook.metadata,pending.metadata)}
   if(pending.kind==='cycle'){state.archiveFiles.add(archiveKey(state.workbook.metadata));state.sourceWritable=false;if(state.sourceHandle){state.archiveHandles.push(state.sourceHandle);rememberFile(state.sourceHandle,state.fileName,false)}}
-  state.pending=null;summary();
+  state.pending=null;if(pending.kind!=='cycle')ui.saved=true;clearFileFailure();summary();
 };
 $('cycleBtn').onclick=()=>{
   if(state.busy || !noDraft())return;
@@ -267,5 +353,5 @@ $('createCycle').onclick=async()=>{
 };
 window.addEventListener('beforeunload',event=>{if(hasUnsaved() || state.busy){event.preventDefault();event.returnValue=''}});
 useWorkbook(state.workbook);resetConfig();clearForm();
-TrackerReviewUI.init({getState:()=>state,safe,money,jobHasDraft:()=>hasDraft() || settingsDraft() || configDraft(),onChange:workbook=>{useWorkbook(workbook);state.revision++;showRows()},onDraftChange:summary,editRecord:editSource});
+TrackerReviewUI.init({getState:()=>state,safe,money,jobHasDraft:()=>hasDraft() || settingsDraft() || configDraft(),onChange:workbook=>{useWorkbook(workbook);state.revision++;showRows()},onDraftChange:summary,editRecord:id=>editSource(id,{reveal:true})});
 showRows();loadRecentFile();

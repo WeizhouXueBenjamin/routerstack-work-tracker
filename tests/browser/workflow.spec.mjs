@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {add,download,open,url} from './helpers.mjs';
+import {add,download,open,url,details,drawer} from './helpers.mjs';
 test.beforeEach(async({page})=>{
   page.on('dialog',d=>d.accept());
   await page.addInitScript(()=>{window.showSaveFilePicker=undefined;window.showOpenFilePicker=undefined});
@@ -94,9 +94,9 @@ test('write waits for close before marking the snapshot saved, retaining concurr
  expect(await page.evaluate(async()=>[state.records.length,(await TrackerWorkbook.read(window.disk)).records.length,state.dirty,hasDraft()])).toEqual([3,2,true,true]);await expect(page.locator('#note')).toHaveValue('Concurrent draft');
 });
 test('unsubmitted work, Config and review drafts block file saving without clearing them',async({page})=>{
- await page.locator('#note').fill('Work draft');await page.locator('#saveBtn').click();await expect(page.locator('#formError')).toContainText('尚未提交');await page.locator('#discardDraft').click();
- await page.locator('#newIssue').click();await page.locator('#reviewDescription').fill('Independent draft');await page.locator('#saveBtn').click();await expect(page.locator('#reviewError')).toContainText('未提交');await expect(page.locator('#reviewDescription')).toHaveValue('Independent draft');await page.locator('#cancelReview').click();
- await page.locator('.settings>summary').click();await page.locator('#defaultRate').fill('80');await page.locator('#saveBtn').click();await expect(page.locator('#configError')).toContainText('草稿');await expect(page.locator('#defaultRate')).toHaveValue('80');
+ await details(page);await page.locator('#note').fill('Work draft');await page.locator('#saveBtn').click();await expect(page.locator('#formError')).toContainText('尚未提交');await page.locator('#discardDraft').click();
+ await drawer(page,'unresolved');await page.locator('#newIssue').click();await page.locator('#reviewDescription').fill('Independent draft');await page.locator('#saveBtn').click();await expect(page.locator('#reviewError')).toContainText('未提交');await expect(page.locator('#reviewDescription')).toHaveValue('Independent draft');await page.locator('#cancelReview').click();
+ await drawer(page,'config');await page.locator('#defaultRate').fill('80');await page.locator('#saveBtn').click();await expect(page.locator('#configError')).toContainText('草稿');await expect(page.locator('#defaultRate')).toHaveValue('80');
 });
 test('oversized File is rejected before reading its bytes and preserves all drafts',async({page})=>{
  await add(page);await page.locator('#note').fill('Keep input');
@@ -105,7 +105,7 @@ test('oversized File is rejected before reading its bytes and preserves all draf
 });
 test('Save As from an archived source creates a writable new snapshot without reopening the archived handle',async({page})=>{
  await workingFile(page);const original=await page.evaluate(()=>state.sourceHash);
- await page.locator('#cycleBtn').click();await page.locator('#cycleName').fill('Next');await download(page,'#createCycle');expect(await page.evaluate(()=>state.sourceWritable)).toBe(false);
+ await drawer(page,'unresolved');await page.locator('#cycleBtn').click();await page.locator('#cycleName').fill('Next');await download(page,'#createCycle');expect(await page.evaluate(()=>state.sourceWritable)).toBe(false);
  await page.evaluate(()=>{
   window.copyDisk=null;window.copyWrites=0;window.showSaveFilePicker=async()=>({name:'new-working-copy.xlsx',id:'copy-after-archive',isSameEntry:async other=>other.id==='copy-after-archive',getFile:async()=>new File([window.copyDisk],'new-working-copy.xlsx'),createWritable:async()=>({write:async blob=>{window.copyNext=await blob.arrayBuffer();window.copyWrites++},close:async()=>{window.copyDisk=window.copyNext},abort:async()=>{}})});
  });

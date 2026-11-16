@@ -1,4 +1,4 @@
-﻿import {readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 export const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -8,7 +8,9 @@ export async function boot(page){
  await page.addInitScript(()=>{window.showOpenFilePicker=undefined;window.showSaveFilePicker=undefined});
  page.on('dialog',dialog=>dialog.accept());await page.goto(url);
 }
-export async function add(page,changes={}){for(const [key,value] of Object.entries(synthetic(changes)))await page.locator('#'+key).fill(value);await page.locator('#submitJob').click()}
+export async function details(page){if(!await page.locator('#additionalDetails').evaluate(node=>node.open))await page.locator('#additionalDetails>summary').click()}
+export async function drawer(page,name){await page.locator('#'+name+'Btn').click()}
+export async function add(page,changes={}){await details(page);for(const [key,value] of Object.entries(synthetic(changes)))await page.locator('#'+key).fill(value);await page.locator('#submitJob').click()}
 export async function download(page,button='#saveBtn',confirm=true){
  const waiting=page.waitForEvent('download');await page.locator(button).click();const file=await waiting;const bytes=await readFile(await file.path());await page.waitForFunction(()=>!state.busy);if(confirm)await page.locator('#confirmDownload').click();return bytes;
 }
