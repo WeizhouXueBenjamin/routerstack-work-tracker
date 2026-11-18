@@ -16,3 +16,17 @@ test('Difference is rounded per record rather than subtracting aggregate App',()
  let state=M.addRecord(M.create(),job({start:'09:00',end:'10:00',rate:0.005,app:0.005}));state=M.addRecord(state,job({start:'09:00',end:'10:00',rate:0.005,app:0.005}));
  const total=R.totals(state);assert.equal(total.estimated,0.02);assert.equal(total.app,0.01);assert.equal(total.difference,0.02);
 });
+
+test('Work Log orders mixed records by date and start, keeps ties stable and preserves source data and totals',()=>{
+ let state=M.carryForward(saved(M.addRecord(M.create(),job({date:'2026-01-15',start:'12:00',note:'Historical'}))),{name:'Next'});
+ for(const input of [
+  {date:'2026-02-01',start:'09:00',note:'Later month'},
+  {date:'2026-01-10',start:'14:00',note:'Afternoon'},
+  {date:'2026-01-10',start:'08:00',note:'Morning first'},
+  {date:'2026-01-10',start:'08:00',note:'Morning second'},
+ ])state=M.addRecord(state,job(input));
+ const before=M.clone(state),totals=R.summary(state);
+ assert.deepEqual(R.view(state).map(row=>row.note),['Morning first','Morning second','Afternoon','Historical','Later month']);
+ assert.deepEqual(R.view(state,{type:'Current',month:'2026-01',query:'morning'}).map(row=>row.note),['Morning first','Morning second']);
+ assert.deepEqual(state,before);assert.deepEqual(R.summary(state),totals);
+});

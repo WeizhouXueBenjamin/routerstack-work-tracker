@@ -21,6 +21,22 @@ test('continuous entry preserves date, restores default rate, clears per-job val
  await expect(page.locator('#statusBar')).toContainText('尚未保存');await add(page,{invoice:'INV-9011'});await page.locator('#rows tr[data-record-id]').first().click();await page.locator('#note').fill('Changed');await page.locator('#submitJob').click();expect(await page.evaluate(()=>state.records.length)).toBe(2);
  const bytes=await download(page);await open(page,bytes);await expect(page.locator('#rate')).toHaveValue('65');expect(await page.evaluate(()=>state.config.defaultRate)).toBe(65);
 });
+
+test('Work Log automatically sorts backdated entries, repositions edits and keeps keyboard selection tied to the shown record',async({page})=>{
+ const rows=page.locator('#rows tr[data-record-id]'),notes=page.locator('#rows tr[data-record-id] .notes span');
+ await add(page,{date:'2026-02-12',invoice:'INV-9101',note:'Later date'});
+ await add(page,{date:'2026-01-10',invoice:'INV-9102',start:'14:00',note:'Afternoon'});
+ await expect(notes).toHaveText(['Afternoon','Later date']);
+ await add(page,{date:'2026-01-10',invoice:'INV-9103',start:'08:00',note:'Morning'});
+ await expect(notes).toHaveText(['Morning','Afternoon','Later date']);await expect(page.locator('#start')).toBeFocused();
+ await rows.first().click();await expect(page.locator('#invoice')).toHaveValue('INV-9103');
+ await page.locator('#date').fill('2026-03-01');await page.locator('#submitJob').click();
+ await expect(notes).toHaveText(['Afternoon','Later date','Morning']);
+ await page.locator('#search').fill('date');await expect(notes).toHaveText(['Later date']);await page.locator('#resetFilters').click();
+ await page.locator('#workScroll').focus();await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+ await expect(page.locator('#invoice')).toHaveValue('INV-9101');await expect(page.locator('#start')).toBeFocused();await page.locator('#cancelEdit').click();
+ const bytes=await download(page);await open(page,bytes);await expect(notes).toHaveText(['Afternoon','Later date','Morning']);
+});
 test('same Invoice is rejected while same-day jobs and unknown Invoices are allowed',async({page})=>{
  await add(page);await add(page);await expect(page.locator('#formError')).toContainText('Invoice');await expect(page.locator('#note')).toHaveValue('Synthetic 中文 & <test>');
  await page.locator('#invoice').fill('');await page.locator('#submitJob').click();await add(page,{invoice:''});expect(await page.evaluate(()=>state.records.length)).toBe(3);

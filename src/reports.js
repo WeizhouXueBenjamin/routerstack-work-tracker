@@ -16,7 +16,7 @@
   }
   function view(state,{type='',month='',query='',issue='all'}={}) {
     const needle=query.trim().toLowerCase();
-    return state.records.filter(row=>(!type || row.type===type) && (!month || row.date.slice(0,7)===month) && (!needle || [row.invoice,row.date,row.note,row.id].join(' ').toLowerCase().includes(needle)) && (issue==='all' || (issue==='needs_review'?M.reminders(state,row).length:M.reminders(state,row).includes(issue))));
+    return state.records.filter(row=>(!type || row.type===type) && (!month || row.date.slice(0,7)===month) && (!needle || [row.invoice,row.date,row.note,row.id].join(' ').toLowerCase().includes(needle)) && (issue==='all' || (issue==='needs_review'?M.reminders(state,row).length:M.reminders(state,row).includes(issue)))).sort((a,b)=>a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
   }
   const api=Object.freeze({ISSUE_LABELS,months,totals,summary,view});
   if(typeof module==='object' && module.exports)module.exports=api;else root.TrackerReports=api;

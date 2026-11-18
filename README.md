@@ -12,7 +12,7 @@
 
 1. 打开最新实际保留的 schema 5.0 周期 XLSX，或从新的空白工作簿开始。最近文件只记住便利引用，每次重开重新读磁盘；权限失效或文件移动时重新授权／选择。
 2. 填真实 Date、Start/End、Rate；Lunch 是数字小时，空白按 0。Invoice、App、Extra、Notes 可后补。添加只进入内存；成功后保留日期、恢复可空默认 Rate，清空专属字段并聚焦 Start。
-3. Work Log 默认同时显示 Current 和浅灰 Historical，只有八列。Length 为实际工时减 Lunch。唯一 Revenue Summary 按 Historical、Current 实际月份和 Total 汇总；筛选不改变完整汇总或导出。
+3. Tool 的 Work Log 默认同时显示 Current 和浅灰 Historical，只有八列；按日期从早到晚、同日按开始时间排列，两者相同保持原顺序。新增或修改日期／开始时间后自动排序。Length 为实际工时减 Lunch。唯一 Revenue Summary 按 Historical、Current 实际月份和 Total 汇总；筛选不改变完整汇总或导出。
 4. 点选 Work Log 行，在左侧查看完整 Notes、修改或确认删除；完成／取消恢复新增上下文。Expanded 收起录入区并完整换行显示 Notes。Config 抽屉中预览并确认规则变化，只重算 Current；Historical 保留原规则。默认 Rate 独立应用，只影响后续预填。
 5. 人工事项和确认余额可选择“未关联工作”，以后可关联、更换或解除关联。参考金额可未知、0 或正负；余额须明确非负金额和依据，0 不自动关闭。银行实收可登记、更正、确认删除，独立于收入和余额。
 6. Save 写回允许的当前句柄，Save As 生成副本／备份；无句柄时下载后点击“我已保留下载文件”。write/close 失败、取消、权限失效和外部文件冲突保留内存与草稿，错误持续显示。确认旧下载不会清除后来编辑。

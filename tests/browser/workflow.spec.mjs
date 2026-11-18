@@ -9,7 +9,7 @@ async function workingFile(page){
   await add(page);
   await page.evaluate(async()=>{
     window.disk=await (await TrackerWorkbook.write(state.workbook)).arrayBuffer();window.writes=0;
-    const handle={name:'working.xlsx',id:'working',isSameEntry:async other=>other.id==='working',queryPermission:async()=> 'granted',getFile:async()=>new File([window.disk],'working.xlsx'),createWritable:async()=>({write:async blob=>{window.nextDisk=await blob.arrayBuffer();window.writes++},close:async()=>{window.disk=window.nextDisk},abort:async()=>{}})};
+    const handle={name:'working.xlsx',id:'working',isSameEntry:async other=>other.id==='working',queryPermission:async()=> 'granted',requestPermission:async()=> 'granted',getFile:async()=>new File([window.disk],'working.xlsx'),createWritable:async()=>({write:async blob=>{window.nextDisk=await blob.arrayBuffer();window.writes++},close:async()=>{window.disk=window.nextDisk},abort:async()=>{}})};
     await takeFile(await handle.getFile(),handle);window.working=handle;
   });
 }
@@ -60,6 +60,58 @@ test('recent reads the actual file and requests permission only after click',asy
   });
   expect(await page.evaluate(()=>window.requests)).toBe(0);await page.locator('#recentBtn').click();await page.waitForFunction(()=>!state.busy);
   expect(await page.evaluate(()=>({requests:window.requests,count:state.records.length}))).toEqual({requests:1,count:2});
+});
+
+test('recent requests permission on click without waiting for an unresponsive permission query',async({page})=>{
+  await workingFile(page);
+  await page.evaluate(()=>{
+    window.requests=0;
+    window.working.queryPermission=()=>new Promise(()=>{});
+    window.working.requestPermission=async()=>{window.requests++;return 'granted'};
+  });
+  await page.locator('#recentBtn').click();
+  await expect.poll(()=>page.evaluate(()=>window.requests),{timeout:2000}).toBe(1);
+  await expect(page.locator('#saveState')).toHaveText('已载入');
+  expect(await page.evaluate(()=>state.records.length)).toBe(1);
+});
+
+for(const stage of ['permission','file','bytes'])test('recent timeout preserves unsaved work and drafts; late '+stage+' results cannot replace a later file',async({page})=>{
+  await workingFile(page);await add(page,{invoice:'INV-9002'});await page.locator('#note').fill('Keep recent draft');
+  const before=await page.evaluate(()=>({workbook:JSON.stringify(state.workbook),revision:state.revision,persisted:state.persistedRevision,hash:state.sourceHash}));
+  const replacement=await page.evaluate(async()=>{
+    const next=TrackerModel.addRecord(TrackerModel.create(),{date:'2026-02-12',start:'10:00',end:'11:00',rate:70,note:'Later chosen file'});
+    return [...new Uint8Array(await(await TrackerWorkbook.write(next)).arrayBuffer())];
+  });
+  await page.clock.install();
+  await page.evaluate(stage=>{
+    const file=new File([window.disk],'working.xlsx');
+    if(stage==='permission'){
+      window.working.queryPermission=async()=> 'prompt';
+      window.working.requestPermission=()=>new Promise(resolve=>{window.finishRecentAccess=()=>resolve('granted')});
+    }
+    if(stage==='file')window.working.getFile=()=>new Promise(resolve=>{window.finishRecentAccess=()=>resolve(file)});
+    if(stage==='bytes'){
+      file.arrayBuffer=()=>new Promise(resolve=>{window.finishRecentAccess=async()=>resolve(await new Blob([window.disk]).arrayBuffer())});
+      window.working.getFile=async()=>file;
+    }
+  },stage);
+  await page.locator('#recentBtn').click();await page.waitForFunction(()=>!!window.finishRecentAccess);
+  await expect(page.locator('#saveState')).toHaveText('正在处理');
+  await page.clock.fastForward(30000);
+  await expect(page.locator('#saveState')).toHaveText('文件操作失败');
+  await expect(page.locator('#fileError')).toContainText('超时');
+  await expect(page.locator('#fileError')).toContainText('重新选择');
+  await expect(page.locator('#openBtn')).toBeEnabled();await expect(page.locator('#saveBtn')).toBeEnabled();
+  await expect(page.locator('#note')).toHaveValue('Keep recent draft');
+  expect(await page.evaluate(()=>({workbook:JSON.stringify(state.workbook),revision:state.revision,persisted:state.persistedRevision,hash:state.sourceHash}))).toEqual(before);
+  await open(page,Buffer.from(replacement),'replacement.xlsx');
+  await page.evaluate(async()=>{
+    const original=TrackerWorkbook;
+    const completed=new Promise(resolve=>{window.TrackerWorkbook={...original,hashBytes:async bytes=>{const hash=await original.hashBytes(bytes);resolve();return hash}}});
+    await window.finishRecentAccess();await completed;
+  });
+  await expect(page.locator('#saveState')).toHaveText('已载入');
+  expect(await page.evaluate(()=>[state.fileName,state.records.length,state.records[0].note])).toEqual(['replacement.xlsx',1,'Later chosen file']);
 });
 
 test('external changes during write abort before close and retain a concurrent form draft',async({page})=>{

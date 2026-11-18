@@ -38,7 +38,7 @@ for(const viewport of [{width:1366,height:768},{width:1920,height:1080}])test(`d
 test('Expanded shows complete Notes and retains filter, selection, scroll anchor and workbook data',async({page})=>{
   await open(page,await makeBytes(page,{count:40}));
   const text='Synthetic 完整工作信息：安装、测试与现场核对。 '.repeat(70)+'\nFinal line — 原始换行和末尾内容。';
-  await page.evaluate(text=>{useWorkbook(Model.updateRecord(state.workbook,state.records[20].id,{...state.records[20],note:text}));showRows()},text);
+  await page.evaluate(text=>{const id=$('rows').children[20].dataset.recordId;useWorkbook(Model.updateRecord(state.workbook,id,{note:text}));showRows()},text);
   await page.locator('#search').fill('INV-');await page.locator('#rows tr[data-record-id]').nth(20).click();
   const before=await page.evaluate(()=>({book:JSON.stringify(state.workbook),selected:state.editing,scroll:$('workScroll').scrollTop}));
   await expect(page.locator('#rows tr[aria-selected=true] .notes span')).toHaveText(text);
@@ -95,9 +95,10 @@ test('work draft survives drawer operations and keyboard record selection uses t
   await open(page,await makeBytes(page,{count:3}));await details(page);await page.locator('#note').fill('New entry draft');
   await drawer(page,'config');await page.locator('#closeDrawer').click();await expect(page.locator('#note')).toHaveValue('New entry draft');
   await page.locator('#expandedBtn').click();await expect(page.locator('#note')).toHaveValue('New entry draft');await page.locator('#discardDraft').click();
+  const secondId=await page.locator('#rows tr[data-record-id]').nth(1).getAttribute('data-record-id');
   await page.locator('#workScroll').focus();await page.keyboard.press('ArrowDown');await expect(page.locator('#rows tr[aria-selected=true]')).toHaveCount(1);
   await page.keyboard.press('ArrowDown');const id=await page.locator('#rows tr[aria-selected=true]').getAttribute('data-record-id');
-  expect(id).toBe(await page.evaluate(()=>state.records[1].id));await page.keyboard.press('Enter');await expect(page.locator('#start')).toBeFocused();
+  expect(id).toBe(secondId);await page.keyboard.press('Enter');await expect(page.locator('#start')).toBeFocused();
 });
 
 test('many-month Summary can collapse older rows while keeping Historical, Total and original amounts',async({page})=>{

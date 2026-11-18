@@ -229,11 +229,15 @@ function commitFile(workbook,file,handle,sourceHash,writable){
   state.fileName=file.name;state.sourceHash=sourceHash;state.opened=true;state.revision=workbook.metadata.fileVersionId?0:1;state.persistedRevision=0;state.pending=null;state.newDate=null;
   resetConfig();clearForm();TrackerReviewUI.reset();clearFileFailure();ui.saved=false;closeDrawer({restoreFocus:false});setDisplayMode('compact');$('workScroll').scrollTop=0;$('typeFilter').value='';$('monthFilter').value='';$('issueFilter').value='all';$('search').value='';showRows();if(handle)rememberFile(handle,file.name,state.sourceWritable);return true;
 }
+async function readFileData(file){
+  if(file.size>TrackerWorkbook.FILE_LIMIT)throw Error('XLSX 输入超过 32MiB');
+  const bytes=await file.arrayBuffer(),workbook=await TrackerWorkbook.read(bytes),hash=await TrackerWorkbook.hashBytes(bytes);
+  return {workbook,hash};
+}
 async function takeFile(file,handle=null,writable=true){
   if(state.busy)return;state.busy=true;summary();
   try{
-    if(file.size>TrackerWorkbook.FILE_LIMIT)throw Error('XLSX 输入超过 32MiB');
-    const bytes=await file.arrayBuffer(),workbook=await TrackerWorkbook.read(bytes),hash=await TrackerWorkbook.hashBytes(bytes);
+    const {workbook,hash}=await readFileData(file);
     if(commitFile(workbook,file,handle,hash,writable))alert('已加载 schema 5.0；工作、事项与必要历史已校验。');
   }catch(error){fileFailure('无法打开文件：'+error.message);alert('无法打开文件：'+error.message)}finally{state.busy=false;summary()}
 }
@@ -248,10 +252,27 @@ async function rememberFile(handle,name,writable){
   try{await TrackerRecentFile.write(handle,name,writable);$('recentStatus').textContent='最近文件仅记住引用；重开会重新读取 XLSX。'}catch{$('recentStatus').textContent='浏览器无法记住文件引用；下次请重新选择 XLSX。'}
 }
 async function loadRecentFile(){try{const recent=await TrackerRecentFile.read();if(state.recent || !recent?.handle)return;state.recent=recent;$('recentBtn').hidden=false;$('recentBtn').textContent='重开最近：'+recent.name}catch{$('recentStatus').textContent='最近文件存储不可用，请重新选择 XLSX。'}}
+async function readRecentFile(handle){
+  let timer;
+  try{
+    const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('重开超时，浏览器未完成文件访问')),30000)});
+    // 在本次点击中直接请求权限，避免旧句柄的权限查询无响应时阻断授权。
+    const reading=(async()=>{
+      if(await handle.requestPermission({mode:'read'})!=='granted')throw Error('未获得读取权限');
+      const file=await handle.getFile();
+      return {file,...await readFileData(file)};
+    })();
+    // 完成竞速后才接纳数据，超时后返回的旧结果不能覆盖新工作。
+    return await Promise.race([reading,timeout]);
+  }finally{clearTimeout(timer)}
+}
 $('recentBtn').onclick=async()=>{
   if(state.busy || !state.recent)return;
   const {handle,writable}=state.recent;state.busy=true;summary();
-  try{if(await handle.queryPermission({mode:'read'})!=='granted' && await handle.requestPermission({mode:'read'})!=='granted')throw Error('未获得读取权限');const file=await handle.getFile();state.busy=false;await takeFile(file,handle,writable)}catch(error){const message='无法重开最近文件：'+error.message+'。当前记录和草稿已保留，请重新选择。';$('recentStatus').textContent=message;fileFailure(message)}finally{state.busy=false;summary()}
+  try{
+    const {file,workbook,hash}=await readRecentFile(handle);
+    if(commitFile(workbook,file,handle,hash,writable))alert('已加载 schema 5.0；工作、事项与必要历史已校验。');
+  }catch(error){const message='无法重开最近文件：'+error.message+'。当前记录和草稿已保留，请点击“Open / Switch File”重新选择 XLSX。';$('recentStatus').textContent=message;fileFailure(message)}finally{state.busy=false;summary()}
 };
 function versionedFilename(newCycle=false) {
   const date=new Date(), pad=(n,w=2)=>String(n).padStart(w,'0');
