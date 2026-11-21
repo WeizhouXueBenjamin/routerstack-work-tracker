@@ -6,6 +6,10 @@ RouterStack Work Tracker is an offline-first personal tool for recording work, e
 
 Application version: **0.1.0**. Workbook schema: **5.0**. Calculation version: **3.0**. These versions describe separate concerns; the application version does not change the workbook format or calculation rules.
 
+![Desktop workbench showing the New Entry form, Revenue Summary, and Work Log](docs/images/desktop-workbench.png)
+
+*Desktop workbench with synthetic data.*
+
 ## Core Features
 
 - Continuous work entry with optional Invoice, App amount, Extra, and Notes.
@@ -89,6 +93,7 @@ docs/
   PROJECT_GOAL.md        Product goals and scope (Chinese)
   architecture.md        Architecture and XLSX contract (Chinese)
   roadmap.md             Maintenance and release direction (Chinese)
+  images/                Documentation screenshots
 scripts/                 Local development, template, and verification tools
 src/                     Application code, styles, and embedded blank template
 templates/               Identity-free schema 5.0 blank XLSX
@@ -101,7 +106,7 @@ AGENTS.md                Contributor/Codex operating constraints (Chinese)
 index.html               Offline application entry point
 ~~~
 
-Local workbooks, backups, test results, screenshots, and temporary evidence are ignored rather than included in the PR.
+Local workbooks, backups, and generated test artifacts are ignored by Git.
 
 ## Architecture Overview
 
