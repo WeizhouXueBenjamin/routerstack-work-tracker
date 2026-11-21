@@ -1,0 +1,22 @@
+{
+  "name": "routerstack-work-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Offline-first personal work tracking and income comparison tool",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:excel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-excel.ps1",
+    "test:native": "node scripts/test-recent-file.mjs",
+    "check": "npm run check:js && npm run template:check && npm test",
+    "check:js": "node scripts/check-js.mjs",
+    "capture:desktop": "node scripts/capture-desktop.mjs",
+    "template:generate": "node scripts/generate-template.mjs && npm run template:sync",
+    "template:sync": "node scripts/embed-template.mjs",
+    "template:check": "node scripts/embed-template.mjs --check"
+  },
+  "engines": {"node": ">=22"},
+  "devDependencies": {"@playwright/test": "1.65.0"}
+}
