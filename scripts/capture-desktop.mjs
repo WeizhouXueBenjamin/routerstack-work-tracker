@@ -3,7 +3,7 @@ import {chromium} from '@playwright/test';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {boot,open,drawer,root} from '../tests/browser/helpers.mjs';
-const folder=resolve(root,process.argv[2] || 'playwright-report/desktop-workbench/final');
+const folder=resolve(root,process.argv[2] || 'playwright-report/desktop');
 await mkdir(folder,{recursive:true});
 const browser=await chromium.launch({headless:true});
 try{

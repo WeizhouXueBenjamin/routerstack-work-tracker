@@ -1,6 +1,12 @@
 # 数据契约与实现
 
-当前格式：**schema 5.0 / calculation 3.0 / app v0.6.0**。依据为 2026-11-16 已获授权的 v0.6 精简实施计划最终修订版。仅此格式可读写，旧 2.0–4.1 拒绝；不迁移、不自动改用户旧文件。历史契约只作历史资料。
+当前格式：**schema 5.0 / calculation 3.0**。应用版本由 [package.json](../package.json) 管理，独立于数据格式和计费版本。仅此格式可读写，旧 2.0–4.1 拒绝；不迁移、不自动改用户旧文件。产品边界见 [Project Goal](PROJECT_GOAL.md)，操作与命令见 [README.md](../README.md)，验证要求见 [AGENTS.md](../AGENTS.md)。
+
+## 离线运行架构
+
+[index.html](../index.html) 通过 classic scripts 顺序加载本地 JSZip、core、model、reports、workbook、内嵌模板、recent-file、review-ui、app。可直接以 file:// 在桌面 Chrome／Edge 运行；开发服务器仅用于本地调试，不是运行时服务。数据流为表单 → 模型命令 → 已校验 WorkbookState → 汇总／界面或显式 XLSX 导出；重开文件先解析和完整校验，再接纳状态。
+
+除最近文件便利引用外，不保存另一份持久工作状态。所有运行资产随仓库提供，不调用 API、追踪或远程存储；IndexedDB 故障或权限失效不应阻断手动选择文件。浏览器文件句柄和下载确认的行为见下文。
 
 ## 唯一模型与模块职责
 
@@ -21,6 +27,8 @@ WorkbookState 固定包含 metadata、config、periods、records、bankReceived�
 ## 字段
 
 所有实体 ID 为稳定字符串；新建使用 UUID。日期为有效 YYYY-MM-DD，时间为 HH:mm 整分钟；操作时间为有效含时区 ISO 时间。关系金额用安全整数 NZD cents，拒绝隐式舍入。工作 Rate/App/Extra 保留原有限数值，计算和汇总同时检查安全金额精度。
+
+Excel 采用 1900 日期系统，业务日期范围为 1900-03-01 至 9999-12-31；1904 日期系统明确拒绝。inline/shared strings 只读取正文 t 或 r/t，不把 rPh 注音合入文本；导出以带 xml:space="preserve" 的 inline string 保留首尾空白及换行，不承诺保留富文本样式。
 
 | 实体 | 固定字段 |
 |---|---|
@@ -70,7 +78,11 @@ Work Log 上方为 Revenue Summary（Historical、Current 实际月份、Total�
 
 保留 calculation 3.0 的钟面分钟模型、跨午夜、小于 24h 工作、Lunch 普通优先、最低计费按剩余普通／AH 比例补足、Extra 和逐步两位舍入。lengthHours = raw − Lunch，不是 billableHours。AH、倍率、最低工时和阈值来自有效 Config 或 Historical 快照；不是官方政策声明。
 
+新空白工作簿的估算默认值为 minHours=2、ahStart=18、ahEnd=6、mult=1.5、tolerance=0.01、allocation=Standard first，defaultRate=null；它们是可编辑的工具配置，不是真实费率或官方政策。不包含夏令时实际经过时长、节假日或税务规则。
+
 Summary 独立于筛选，Historical 不拆原月份，Current 仅从实际日期生成月份，Total 包含全部记录。Estimated、App、Difference 分别合计；Difference 逐笔舍入后再加，不能由两个总数相减代替。App 空白不当作 0；无可比项为空，有不可比项的可比差额标 *／Partial。银行、人工参考金额、确认余额均不进入 Summary。
+
+工作整项按原 date 归属月份，跨午夜／跨月不拆分。Work Log 在 Tool 中按日期、开始时间升序显示，相同日期／时间保持原顺序；筛选不缩小导出。界面的 Summary 可折叠较早月份，这只是查看状态。
 
 Config 预览携带 transient revision 和完整状态基线；确认时两者均须一致。只重算 Current，不改 Rate/App/Historical 或人工实体，不产生 AppChange。defaultRate 独立应用，仅用于后续预填。只有 App 实际变化才追加专用历史，保留旧／新值、观察时间、系统时间、Invoice、Estimated 和 Difference；同值保存、普通编辑、Config 重算不追加。无金额变化时填写观察资料会拒绝提交并保留输入。
 
@@ -96,4 +108,4 @@ Save 仅写允许的当前句柄。权限检查后，在 createWritable 前、�
 
 当前空白模板为 templates/RouterStack_Tracker_V5_Blank.xlsx，唯一生成入口 npm run template:generate，唯一嵌入资产 src/template-data.js。模板没有共享 FileID、PeriodID 或业务身份，每次打开创建独立身份。
 
-最低验证：npm run check、浏览器新增→保存→重开→连续两次结转、npm run test:native；schema／公式／模板变更另跑 npm run test:excel。CI 覆盖前两类和原生句柄脚本，不代表 Windows 桌面 Excel 已验收。当前实际结果和环境限制见 [本轮验证报告](reports/2026-11-17-v06-validation.md)。
+验证命令与变更类型要求统一见 [AGENTS.md](../AGENTS.md#验证与交付)。浏览器可验证真实下载与文件重开，受控句柄用于错误／冲突分支；原生文件引用脚本单独验证浏览器重启后的权限与磁盘重读。桌面 Excel 的重算／排序／筛选／保存往返由 Windows 脚本验证，不能用公式缓存或 Linux CI 代替，也不扩展为所有 Excel 版本／平台的保证。合成测试可重建证据，不依赖历史报告中的本机临时路径。

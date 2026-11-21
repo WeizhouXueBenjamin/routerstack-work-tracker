@@ -1,23 +1,31 @@
-# 路线图与实施状态
+# 维护与后续方向
 
-范围见 [Project Goal](PROJECT_GOAL.md)，实际格式见 [数据契约](architecture.md)。2026-11-16 用户授权 v0.6 精简实施计划最终修订版，开始时 HEAD 为 67163c3104420756aa6d2d6fb712ee00c975785a，工作区干净。本轮修改保留在本地，未提交、推送或部署。
+产品范围以 [Project Goal](PROJECT_GOAL.md) 为准，格式与实现以 [architecture.md](architecture.md) 为准。本文件只描述后续工作方向，不作为功能授权或测试通过证明。
 
-## 已接入 v0.6
+## v0.1.0 PR 准备
 
-| 批次 | 结果 | 验证入口 |
-|---|---|---|
-| 契约与计算 | schema 5.0、calculation 3.0 数值基线、Length、动态列映射；移除 300 条业务限制 | tests/core.test.mjs、docs/architecture.md |
-| 最小模型 | 单一 Current/Historical records；原子 CRUD；可空工作引用；银行 CRUD；App／事项／余额专用历史 | tests/model.test.mjs、tests/carry-forward.test.mjs |
-| 唯一 XLSX | 四 Sheet／八 Table；规范化 SHA-256；严格公式／类型／引用／额外数据／容量校验；无旧格式入口 | tests/browser/workbook.spec.mjs |
-| Tool | 八列、Historical 灰底、唯一 Summary、Config 预览／取消／过期保护、轻量表单与后补关联 | tests/browser/tracker.spec.mjs |
-| 文件生命周期 | Save／Save As、三阶段冲突、abort、write/close、并发输入、旧下载确认、归档、最近引用 | tests/browser/workflow.spec.mjs、scripts/test-recent-file.mjs |
-| 紧凑桌面 UI | Desktop-only；左侧录入、右侧 Summary／Work Log、Compact／Expanded、三个互斥抽屉及草稿保护 | tests/browser/design.spec.mjs、[当前 UI 验收](reports/2026-11-17-compact-desktop.md) |
-| 清理 | 删除旧金融、迁移、通用审计、Tim 及旧模板／测试；单一模板和桌面 Excel 入口；更新 package／CI | 当前源码、package.json、.github/workflows/ci.yml |
+目标是形成简洁、准确、可维护的首次正式 PR 基线：
 
-## 验收状态
+- 统一未发布的应用版本及开发命令，保持 schema 5.0／calculation 3.0。
+- 以 README、Project Goal、architecture、roadmap、AGENTS 五份文件明确文档职责。
+- 移除已被当前契约取代的开发历史和重复入口，保留有效约束及可复现的合成测试。
+- 核对离线运行资产、测试引用、隐私忽略规则和本轮实际验证结果。
 
-本轮 Node、浏览器、原生句柄、301／1,000／5,000 条容量测试及实际性能见 [验证报告](reports/2026-11-17-v06-validation.md)。没有将旧报告结果算成本轮通过。
+本地整理不等于发布。提交前应复核 diff；本轮不自动提交、推送、创建 PR、打标签、发布 Release 或部署。
 
-桌面 Excel gate **通过**：受限进程曾返回 0x80070520，改为受限环境外执行同一 npm run test:excel 后，在 Excel 16.0 完成重算／全表排序／筛选／保存→Tool 重开→再导出和连续两次新周期。真实验收发现的 Table 筛选脚本调用与 Historical 差分背景色问题已修复，模板／嵌入资产同步，回归通过。完整过程和合成文件证据见上述报告。
+## 后续维护
 
-本轮已授权实现和验收完成；没有自动提交、推送或部署。不恢复旧金融流程，也不启动暂缓功能。
+以下是维护方向，具体修改仍须按任务明确范围：
+
+- 根据真实使用中可复现的问题修复缺陷，优先保护草稿、保存、重开及跨周期完整性。
+- 保持开发脚本、CI 和文档命令一致；依赖升级与兼容验证单独评估。
+- 按实际需要复核桌面 Chrome／Edge 和目标 Excel 环境，不将历史通过记录当成当前保证。
+- 源码重构仅在能说明具体维护收益、控制行为影响并获得授权后单独进行。
+
+新增业务功能、移动端或远程服务不包含在维护默认范围。暂缓项和提案门槛见 Project Goal。
+
+## 发布前检查
+
+应用版本、XLSX schema 和 calculation version 独立管理。版本调整前检查 Git tags／Releases，不覆盖已发布版本，不伪造历史 Release 或 Changelog。
+
+验证要求见 [AGENTS.md](../AGENTS.md)，命令说明见 [README.md](../README.md#development--testing)。交付说明应记录本次实际命令、结果和未验证项；CI、桌面 Excel 与发布状态分别报告。

@@ -1,43 +1,131 @@
 # RouterStack Work Tracker
 
-个人使用、离线优先的工作记录与轻量核对工具：减少重复输入、独立估算并发现 App 金额差异、跨周期保留未解决事项。不是 RouterStack 官方软件。
+## Project Overview
 
-当前本地版本 **v0.6.0 / schema 5.0 / calculation 3.0**。工程资料从 [文档入口](docs/README.md) 开始；本次授权与范围见 [Project Goal](docs/PROJECT_GOAL.md)。
+RouterStack Work Tracker is an offline-first personal tool for recording work, estimating revenue, comparing amounts shown in the RouterStack app, and carrying unresolved items into the next work period. It is not official RouterStack software, an accounting system, or a payroll system.
 
-界面仅面向桌面：左侧 320px 录入，右侧紧凑 Revenue Summary 与八列 Work Log。支持 Compact／Expanded 和 Config／Bank Received／Unresolved 右侧抽屉；验收视口为 1366×768、1920×1080，不再维护手机适配。截图和本轮检查见 [紧凑桌面验收](docs/reports/2026-11-17-compact-desktop.md)。
+Application version: **0.1.0**. Workbook schema: **5.0**. Calculation version: **3.0**. These versions describe separate concerns; the application version does not change the workbook format or calculation rules.
 
-## 使用
+## Core Features
 
-直接用 Chrome/Edge 打开 [index.html](index.html)，日常无需 Node.js、账号、服务器、宏或互联网。
+- Continuous work entry with optional Invoice, App amount, Extra, and Notes.
+- An eight-column Work Log with Current and Historical records, search, filters, and Compact / Expanded views.
+- Revenue Summary by Historical records, current work months, and Total, preserving the distinction between an unknown App amount and an explicit zero.
+- Editable calculation settings with a preview before applying changes to Current records; Historical records retain their original rules.
+- Independent bank receipts, manual issues, and explicitly confirmed balances.
+- Selective carry-forward of unresolved items and their necessary source records and history.
+- Explicit Save / Save As, external-file conflict detection, and draft protection when saving fails or is cancelled.
 
-1. 打开最新实际保留的 schema 5.0 周期 XLSX，或从新的空白工作簿开始。最近文件只记住便利引用，每次重开重新读磁盘；权限失效或文件移动时重新授权／选择。
-2. 填真实 Date、Start/End、Rate；Lunch 是数字小时，空白按 0。Invoice、App、Extra、Notes 可后补。添加只进入内存；成功后保留日期、恢复可空默认 Rate，清空专属字段并聚焦 Start。
-3. Tool 的 Work Log 默认同时显示 Current 和浅灰 Historical，只有八列；按日期从早到晚、同日按开始时间排列，两者相同保持原顺序。新增或修改日期／开始时间后自动排序。Length 为实际工时减 Lunch。唯一 Revenue Summary 按 Historical、Current 实际月份和 Total 汇总；筛选不改变完整汇总或导出。
-4. 点选 Work Log 行，在左侧查看完整 Notes、修改或确认删除；完成／取消恢复新增上下文。Expanded 收起录入区并完整换行显示 Notes。Config 抽屉中预览并确认规则变化，只重算 Current；Historical 保留原规则。默认 Rate 独立应用，只影响后续预填。
-5. 人工事项和确认余额可选择“未关联工作”，以后可关联、更换或解除关联。参考金额可未知、0 或正负；余额须明确非负金额和依据，0 不自动关闭。银行实收可登记、更正、确认删除，独立于收入和余额。
-6. Save 写回允许的当前句柄，Save As 生成副本／备份；无句柄时下载后点击“我已保留下载文件”。write/close 失败、取消、权限失效和外部文件冲突保留内存与草稿，错误持续显示。确认旧下载不会清除后来编辑。
-7. 保存并确认保留当前文件、提交或取消草稿后，从 Unresolved 抽屉进入结转预览。提醒类别、人工事项和余额独立选择，排除余额单独确认。只携带必要真实工作及专用历史，银行款不携带。新文件无 Current 工作，可只有独立事项／余额；旧文件不变，生成后打开新文件继续。
+## Technology Stack
 
-App 空白是未知，明确 0 是已知。Difference 不是确认欠款，银行总额不证明某项 Invoice 已付。Summary 不包含人工参考金额、确认余额或银行实收。
+- Plain HTML, CSS, and JavaScript, loaded as classic scripts.
+- Bundled JSZip for local XLSX ZIP/XML processing.
+- IndexedDB for a recent-file reference only.
+- Node.js for development scripts and unit tests; Playwright for browser tests.
+- PowerShell and installed desktop Excel for optional Excel compatibility verification.
 
-只支持 schema 5.0，旧 2.0–4.1 明确拒绝，不提供迁移／升级／只读适配器；保管好原文件。Excel 可查看、重算、整表排序／筛选并保存；业务数据和 Config 通过 Tool 编辑，外部业务或公式修改会被拒绝。字段、结构、容量及完整性规则见 [数据契约](docs/architecture.md)。
+There is no build step, backend, database of work records, or runtime network dependency.
 
-## 本地开发和验证
+## Getting Started
 
-需要 Node.js >=22。开发入口 http://127.0.0.1:4173：
+Download or clone the repository, keep its directory structure intact, and open [index.html](index.html) in desktop Chrome or Edge. Opening the HTML file directly works offline and requires no Node.js installation, server, account, or macros.
 
-~~~powershell
+For development, install Node.js **22 or later** and run:
+
+~~~sh
 npm ci
 npx playwright install chromium
 npm run dev
-npm run check
-npm run test:e2e
-npm run test:native
-npm run test:excel
 ~~~
 
-安装测试工具需要联网，应用运行无需联网。TEST_BROWSER=chrome 或 msedge 可选已安装浏览器。空白模板为 [RouterStack_Tracker_V5_Blank.xlsx](templates/RouterStack_Tracker_V5_Blank.xlsx)，生成入口 npm run template:generate；嵌入资产同步检查包含在 check 中。
+Open http://127.0.0.1:4173. Dependency and browser installation require internet access; daily application use does not. CI uses Node.js 24. In Windows PowerShell, use `npm.cmd` / `npx.cmd` if execution policy blocks the corresponding PowerShell wrappers.
 
-v0.6 数据实现阶段的规模测试和 Excel 16.0 两次周期往返见 [历史验证报告](docs/reports/2026-11-17-v06-validation.md)。此次 UI 修改未改 schema、公式或模板，未重跑桌面 Excel；当前界面的实际结果以紧凑桌面验收记录为准。没有自动提交、推送或部署；本地通过不代表发布。
+## How to Use
 
-真实工作簿和财务资料请放仓库外并备份，测试仅用合成数据。JSZip 授权见 vendor/JSZip_LICENSE.markdown；源代码未指定开源许可证。
+1. Open your latest retained schema 5.0 XLSX, or start with the empty workbook shown at launch. An identity-free [blank template](templates/RouterStack_Tracker_V5_Blank.xlsx) is also included.
+2. Enter the actual date, start/end times, and hourly rate. Lunch is a number of hours; a blank Lunch counts as zero. Invoice and other details can be added later.
+3. Review the Work Log and Revenue Summary. Select a row to edit it in the left panel. Expanded view displays full Notes. Use the Config, Bank Received, and Unresolved drawers when needed.
+4. Use **Save** to write the current permitted file, or **Save As** to create a new working copy. If the browser uses a download, explicitly confirm that you retained the downloaded file.
+5. After saving the current file and submitting or cancelling drafts, open carry-forward from Unresolved. Choose reminders, manual issues, and confirmed balances, generate the next-period XLSX, then open that file to continue.
+
+An App difference is not a confirmed debt. A bank total does not establish payment of an individual Invoice. Bank receipts, manual reference amounts, and confirmed balances do not enter Revenue Summary.
+
+## Data Storage & Privacy
+
+The latest XLSX you explicitly save and retain is the **sole persistent source of work data**. The Tool is the **only business-editing interface**. Excel may view, recalculate, sort whole tables, filter, and save; external edits to business values, Config, identities, histories, or formulas are rejected on import.
+
+Drafts and added entries stay in memory until saved. A failed or cancelled save preserves them. Starting a download does not prove that a file was retained, and confirming an older download does not clear newer edits.
+
+The optional recent-file entry stores only a file handle, name, and write capability in IndexedDB. It stores no workbook bytes or work records. Browser permissions can expire, and moved files may need to be selected again. Direct file access depends on browser support and user permission; the file-input/download fallback remains available.
+
+The application has no API calls, analytics, remote storage, or automatic uploads. Keep real workbooks and financial documents outside the repository and maintain your own backups. Tests generate synthetic data only.
+
+## Development & Testing
+
+Run these commands from the repository root:
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Serve the local development copy on loopback port 4173 |
+| `npm run check` | Check JavaScript syntax, embedded-template synchronization, and Node tests |
+| `npm test` | Run calculation, model, summary, and carry-forward unit tests |
+| `npm run test:e2e` | Run offline browser workflows, data-integrity checks, and desktop UI tests |
+| `npm run test:native` | Check native file references and permission fallback across a browser restart |
+| `npm run test:excel` | Run Windows desktop Excel recalculation, sorting/filtering, save/reopen, and two carry-forward cycles |
+| `npm run capture:desktop` | Generate synthetic desktop screenshots and measurements under `playwright-report/` |
+| `npm run template:generate` | Regenerate the blank schema 5.0 workbook and synchronize its embedded asset |
+| `npm run template:sync` | Refresh the embedded asset from the existing blank workbook |
+| `npm run template:check` | Check template/embedded-asset consistency without modifying files |
+
+For the browser suite, set `TEST_BROWSER` to `chrome` or `msedge` to use an installed browser channel. The native-file and screenshot scripts use Playwright Chromium. Excel verification requires Windows PowerShell and installed desktop Excel; it is not part of the Linux CI job.
+
+CI runs `npm run check`, `npm run test:e2e`, and `npm run test:native`. A local pass does not establish a remote CI result or a release. Browser tests cover real downloads and reopening; controlled handles cover write failures and conflicts. Native-handle and desktop Excel checks have separate scopes. Required checks by change type are defined in [AGENTS.md](AGENTS.md).
+
+## Project Structure
+
+~~~text
+.github/workflows/       CI configuration
+docs/
+  PROJECT_GOAL.md        Product goals and scope (Chinese)
+  architecture.md        Architecture and XLSX contract (Chinese)
+  roadmap.md             Maintenance and release direction (Chinese)
+scripts/                 Local development, template, and verification tools
+src/                     Application code, styles, and embedded blank template
+templates/               Identity-free schema 5.0 blank XLSX
+tests/
+  browser/               Playwright tests and shared browser helpers
+  *.test.mjs             Node unit tests
+  fixtures.mjs           Synthetic unit-test fixtures
+vendor/                  Bundled JSZip and its license
+AGENTS.md                Contributor/Codex operating constraints (Chinese)
+index.html               Offline application entry point
+~~~
+
+Local workbooks, backups, test results, screenshots, and temporary evidence are ignored rather than included in the PR.
+
+## Architecture Overview
+
+`core.js` provides calculation rules. `model.js` owns validated WorkbookState operations. `workbook.js` reads and writes the four-sheet, eight-table XLSX. `reports.js` derives summaries, while `app.js` and `review-ui.js` connect the model to the desktop interface. `recent-file.js` manages the optional file reference.
+
+The workbook contains Work Log, Config, Follow-up, and History sheets. Detailed fields, formulas, integrity limits, and save/carry-forward semantics are defined once in the [architecture and data contract](docs/architecture.md).
+
+## Known Limitations
+
+- Desktop only, with acceptance viewports of 1366×768 and 1920×1080. The interface uses Chinese labels alongside English work and finance terms.
+- Only schema 5.0 / calculation 3.0 is accepted. Schema 2.0–4.1 files are rejected; no migration or legacy reader is provided.
+- Direct file writes and recent-file permissions vary by browser and session. Do not rely on permanent permission or automatic saving.
+- The calculation model is an editable estimate, not a statement of official rates or payment policy. Clock-time shifts must be shorter than 24 hours; no daylight-saving elapsed-time or holiday-specific model is provided.
+- The workbook has explicit file, XML, and Excel-row limits. Compatibility and performance are bounded by the cases actually verified, not every Excel version or its theoretical row capacity.
+- External business editing, cross-file merging, bank/App integration, cloud sync, and automatic payment allocation are outside the current scope.
+
+## Documentation
+
+Read in this order:
+
+1. [README.md](README.md): project entry, use, and development.
+2. [Project Goal](docs/PROJECT_GOAL.md): product objectives and business boundaries.
+3. [Architecture](docs/architecture.md): current implementation and XLSX data contract.
+4. [Roadmap](docs/roadmap.md): maintenance and future work boundaries.
+5. [AGENTS.md](AGENTS.md): contributor/Codex constraints and required verification.
+
+Product scope is defined by Project Goal; data behavior by the architecture contract; development procedure by AGENTS.md. See [LICENSE](LICENSE) for the MIT license and [JSZip's bundled license](vendor/JSZip_LICENSE.markdown) for the third-party dependency.

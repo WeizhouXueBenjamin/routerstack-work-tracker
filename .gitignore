@@ -1,11 +1,14 @@
 # Real invoice / financial data must never be committed.
-*.xlsx
-*.xls
-*.xlsm
-*.csv
-*.pdf
-*.zip
-!templates/RouterStack_Tracker_V5_Blank.xlsx
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS]
+*.[xX][lL][sS][mM]
+*.xlsb
+*.ods
+*.[cC][sS][vV]
+*.tsv
+*.[pP][dD][fF]
+*.[zZ][iI][pP]
+!/templates/RouterStack_Tracker_V5_Blank.xlsx
 
 # Local user files and exports
 data/
@@ -13,9 +16,13 @@ private/
 backups/
 exports/
 downloads/
+artifacts/
 **/local-reference/
 **/FULL_CONVERSATION_HANDOFF_PRIVATE.md
 *.log
+*.tmp
+*.temp
+~$*
 .env
 .env.*
 !.env.example
@@ -31,5 +38,5 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local scratch notes
 Todo
-
